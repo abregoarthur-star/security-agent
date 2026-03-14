@@ -69,6 +69,10 @@ export async function handleCommand(message) {
       case '/wild': await handleWild(chatId); break;
       case '/analyze': await handleAnalyzeCVE(chatId, args); break;
       case '/template': await handleTemplateCVE(chatId, args); break;
+      case '/programs': await handlePrograms(chatId, args); break;
+      case '/matches': await handleMatches(chatId, args); break;
+      case '/submit': await handleSubmit(chatId, args); break;
+      case '/payouts': await handlePayouts(chatId); break;
       case '/chatid': await sendMessage(chatId, `Your chat ID: <code>${chatId}</code>`); break;
       case '/help': await sendMessage(chatId, getHelpMessage()); break;
       default:
@@ -87,9 +91,9 @@ export async function handleCommand(message) {
 }
 
 function getStartMessage() {
-  return `<b>🛡️ Uber Security Agent v2.0</b>
+  return `<b>🛡️ Uber Security Agent v2.1</b>
 
-Autonomous CVE intelligence and vulnerability monitoring powered by Claude Opus 4.6.
+Autonomous CVE intelligence, bounty program matching, and vulnerability monitoring powered by Claude Opus 4.6.
 
 <b>15 Intelligence Feeds:</b>
 
@@ -107,7 +111,8 @@ Autonomous CVE intelligence and vulnerability monitoring powered by Claude Opus 
 • Real-time critical CVE + exploit + PoC alerts
 • Underground intelligence from researcher communities
 • Opus 4.6 threat landscape analysis (every 15 min)
-• Bug bounty opportunity identification
+• Bounty program registry + CVE-to-program matching
+• Submission tracking + payout analytics
 • In-the-wild exploitation tracking
 • Daily security briefings (8 AM ET)
 
@@ -137,6 +142,12 @@ function getHelpMessage() {
 /analyze [CVE-ID] — Full exploit analysis (exploitability, impact, fix, bounty)
 /template [CVE-ID] — Generate Nuclei detection template
 
+<b>Bounty Programs:</b>
+/programs — List all bounty programs with scope + tech stacks
+/matches [program] — Top CVE matches scored by priority
+/submit [CVE] [program] — Mark a CVE as submitted to a program
+/payouts — Payout analytics (earned, pending, win rate)
+
 <b>Scanning:</b>
 /scan [domain] — Full security scan
 
@@ -148,9 +159,9 @@ function getHelpMessage() {
 • Critical/High CVE alerts — every 5 min
 • New exploit alerts — every 5 min
 • New PoC exploit code alerts — every 5 min
+• Bounty program matches — every 5 min
 • Opus 4.6 threat digest — every 15 min
 • Top 3 critical CVE deep analysis — every 15 min
-• Bounty opportunities — every 15 min
 • Daily briefing — 8:00 AM ET`;
 }
 
@@ -163,7 +174,7 @@ async function handleStatus(chatId) {
   const analysis = getLatestAnalysis();
   const ugStatus = getUndergroundFeedStatus();
 
-  let msg = `<b>🛡️ Uber Security Agent v2.0 Status</b>\n\n`;
+  let msg = `<b>🛡️ Uber Security Agent v2.1 Status</b>\n\n`;
 
   msg += `<b>Core Feeds (7):</b>\n`;
   msg += `• NVD: ${stats.nvdStatus}\n`;
@@ -201,6 +212,21 @@ async function handleStatus(chatId) {
     if (analysis.inputTokens) msg += `• Tokens: ${analysis.inputTokens} in / ${analysis.outputTokens} out\n`;
   }
   msg += '\n';
+
+  // Bounty programs
+  try {
+    const { getPrograms, getTopMatches, getPayoutStats } = await import('./bounty-manager.js');
+    const programs = getPrograms(true);
+    const matches = getTopMatches(5);
+    const payoutStats = getPayoutStats();
+    msg += `\n<b>Bounty Programs:</b>\n`;
+    msg += `• Active programs: ${programs.length}\n`;
+    msg += `• Programs: ${programs.map(p => p.name).join(', ') || 'None'}\n`;
+    msg += `• Total matches: ${payoutStats.totalMatches}\n`;
+    msg += `• Submissions: ${payoutStats.totalSubmissions}\n`;
+    if (payoutStats.lastMatchRun) msg += `• Last match run: ${payoutStats.lastMatchRun}\n`;
+    msg += '\n';
+  } catch {}
 
   msg += `<b>Brain Link:</b> ${process.env.BRAIN_API_URL ? '✅ Connected' : '❌ Not configured'}\n`;
   msg += `<b>Telegram:</b> ✅ Connected\n`;
@@ -814,6 +840,163 @@ async function handleTemplateCVE(chatId, cveId) {
 
   let msg = `<b>Nuclei Template: ${cveId}</b>\n\n`;
   msg += `<pre>${template.slice(0, 3500)}</pre>`;
+
+  await sendMessage(chatId, msg);
+}
+
+// ─── Bounty Program Commands ────────────────────────────
+
+async function handlePrograms(chatId, args) {
+  const { getPrograms } = await import('./bounty-manager.js');
+  const programs = getPrograms();
+
+  if (programs.length === 0) {
+    await sendMessage(chatId, 'No bounty programs configured. Add one via the API.');
+    return;
+  }
+
+  let msg = `<b>🎯 Bounty Programs (${programs.length})</b>\n\n`;
+  for (const p of programs) {
+    const status = p.active ? '✅' : '❌';
+    msg += `${status} <b>${p.name}</b> (${p.id})\n`;
+    msg += `Platform: ${p.platform}\n`;
+    msg += `Rewards: ${p.rewardsModel}${p.maxBounty ? ` (max $${p.maxBounty})` : ''}\n`;
+    msg += `Safe Harbor: ${p.safeHarbor ? 'Yes' : 'No'}\n`;
+    msg += `Submit: ${p.submitTo || p.url || 'N/A'}\n`;
+    msg += `Tech: ${p.techStack.slice(0, 10).join(', ')}${p.techStack.length > 10 ? '...' : ''}\n`;
+    if (p.scope?.inScope?.length > 0) {
+      msg += `Scope: ${p.scope.inScope.slice(0, 4).join(', ')}\n`;
+    }
+    if (p.cweHighValue?.length > 0) {
+      msg += `High-Value CWEs: ${p.cweHighValue.slice(0, 6).join(', ')}${p.cweHighValue.length > 6 ? '...' : ''}\n`;
+    }
+    if (p.notes) msg += `Notes: ${p.notes.slice(0, 100)}\n`;
+    msg += '\n';
+  }
+
+  await sendMessage(chatId, msg);
+}
+
+async function handleMatches(chatId, args) {
+  const { getTopMatches, getMatchesForProgram, getProgram } = await import('./bounty-manager.js');
+
+  let matches;
+  let title;
+
+  if (args) {
+    const programId = args.toLowerCase().trim();
+    const program = getProgram(programId);
+    if (!program) {
+      await sendMessage(chatId, `Program <code>${programId}</code> not found. Use /programs to list all.`);
+      return;
+    }
+    matches = getMatchesForProgram(programId, 15);
+    title = `Matches for ${program.name}`;
+  } else {
+    matches = getTopMatches(15);
+    title = 'Top Bounty Matches';
+  }
+
+  if (matches.length === 0) {
+    await sendMessage(chatId, `No bounty matches yet. Matching runs every 5 minutes after feed polls.`);
+    return;
+  }
+
+  let msg = `<b>🎯 ${title}</b>\n\n`;
+  for (const m of matches) {
+    const scoreIcon = m.score >= 80 ? '🔴' : m.score >= 60 ? '🟠' : '🟡';
+    msg += `${scoreIcon} <b>${m.cveId}</b> → ${m.programName}\n`;
+    msg += `Score: ${m.score}/100 | CVSS: ${m.cve?.cvss || '?'}\n`;
+    if (m.techOverlap?.length > 0) msg += `Tech: ${m.techOverlap.join(', ')}\n`;
+    if (m.cweMatch?.length > 0) msg += `CWE: ${m.cweMatch.join(', ')}\n`;
+    if (m.analysis?.verdict) msg += `Verdict: ${m.analysis.verdict.toUpperCase()}\n`;
+    if (m.analysis?.estimatedBounty) msg += `Est: ${m.analysis.estimatedBounty}\n`;
+    msg += `${m.cve?.description?.slice(0, 100) || ''}...\n\n`;
+  }
+
+  msg += `<i>Total: ${matches.length} matches</i>`;
+  await sendMessage(chatId, msg);
+}
+
+async function handleSubmit(chatId, args) {
+  const { addSubmission, getPrograms } = await import('./bounty-manager.js');
+
+  if (!args) {
+    const programs = getPrograms(true);
+    let usage = 'Usage: /submit CVE-2026-XXXX program_id\n\n';
+    usage += '<b>Active Programs:</b>\n';
+    for (const p of programs) {
+      usage += `• <code>${p.id}</code> — ${p.name}\n`;
+    }
+    usage += '\nExample: <code>/submit CVE-2026-1234 railway</code>';
+    await sendMessage(chatId, usage);
+    return;
+  }
+
+  const parts = args.split(/\s+/);
+  if (parts.length < 2) {
+    await sendMessage(chatId, 'Usage: /submit CVE-2026-XXXX program_id');
+    return;
+  }
+
+  const cveId = parts[0].toUpperCase();
+  const programId = parts[1].toLowerCase();
+
+  try {
+    const sub = addSubmission(programId, cveId);
+    let msg = `<b>✅ Submission Tracked</b>\n\n`;
+    msg += `<b>CVE:</b> ${sub.cveId}\n`;
+    msg += `<b>Program:</b> ${sub.programName}\n`;
+    msg += `<b>Status:</b> ${sub.status}\n`;
+    msg += `<b>Submitted:</b> ${sub.submittedAt}\n`;
+    msg += `\n<i>This CVE will no longer appear as a new match for ${sub.programName}.</i>`;
+    await sendMessage(chatId, msg);
+  } catch (err) {
+    await sendMessage(chatId, `<b>Error:</b> ${err.message}`);
+  }
+}
+
+async function handlePayouts(chatId) {
+  const { getPayoutStats } = await import('./bounty-manager.js');
+  const stats = getPayoutStats();
+
+  let msg = `<b>💰 Payout Analytics</b>\n\n`;
+
+  msg += `<b>Pipeline:</b>\n`;
+  msg += `• Total Submissions: ${stats.totalSubmissions}\n`;
+  msg += `• Paid: ${stats.paidCount}\n`;
+  msg += `• Pending: ${stats.pendingCount}\n`;
+  msg += `• Rejected: ${stats.rejectedCount}\n`;
+  msg += `• Win Rate: ${stats.winRate}%\n\n`;
+
+  msg += `<b>Revenue:</b>\n`;
+  msg += `• Total Earned: $${stats.totalEarned.toLocaleString()}\n`;
+  msg += `• Total Pending: $${stats.totalPending.toLocaleString()}\n\n`;
+
+  msg += `<b>Programs:</b>\n`;
+  msg += `• Active: ${stats.activePrograms}\n`;
+  msg += `• Total Matches: ${stats.totalMatches}\n`;
+  if (stats.lastMatchRun) msg += `• Last Match: ${stats.lastMatchRun}\n`;
+
+  const programEntries = Object.entries(stats.byProgram);
+  if (programEntries.length > 0) {
+    msg += `\n<b>By Program:</b>\n`;
+    for (const [id, data] of programEntries) {
+      msg += `• ${data.name}: ${data.submitted} submitted, ${data.paid} paid, $${data.earned.toLocaleString()} earned\n`;
+    }
+  }
+
+  const cweEntries = Object.entries(stats.byCWE);
+  if (cweEntries.length > 0) {
+    msg += `\n<b>Skill Breakdown (CWE):</b>\n`;
+    for (const [cwe, data] of cweEntries.sort((a, b) => b[1].count - a[1].count).slice(0, 8)) {
+      msg += `• ${cwe}: ${data.count} submitted, ${data.paid} paid\n`;
+    }
+  }
+
+  if (stats.totalSubmissions === 0) {
+    msg += '\n<i>No submissions yet. Use /submit to track your first report.</i>';
+  }
 
   await sendMessage(chatId, msg);
 }

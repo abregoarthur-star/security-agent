@@ -21,6 +21,11 @@ import { pollUndergroundFeeds, getUndergroundIntel, getNewPOCs, getExploitedInWi
 import { runAnalysis, getLatestAnalysis, getAnalysisHistory } from './analysis.js';
 import { analyzeExploit } from './exploit-analysis.js';
 import { loadFindings, getFindings } from './findings.js';
+import {
+  loadPrograms, getPrograms, getProgram, addProgram, getTopMatches,
+  getMatchesForProgram, getSubmissions, getPayoutStats, matchCVEsToPrograms,
+  analyzeMatch, getBountyStore,
+} from './bounty-manager.js';
 
 const app = express();
 app.use(express.json());
@@ -97,6 +102,10 @@ app.get('/intel/security', (req, res) => {
     feeds: getFeedStatus(),
     undergroundFeeds: getUndergroundFeedStatus(),
     lastPoll: stats.lastPoll,
+    // Bounty program data (for Brain)
+    bountyPrograms: getPrograms(true),
+    bountyMatches: getTopMatches(10),
+    submissions: getSubmissions().slice(0, 10),
   });
 });
 
@@ -127,6 +136,58 @@ app.get('/intel/analysis', (req, res) => {
     latest: getLatestAnalysis(),
     history: getAnalysisHistory(),
   });
+});
+
+// ─── Bounty Program API ─────────────────────────────────
+
+app.get('/bounty/programs', (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.BRAIN_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const activeOnly = req.query.active === 'true';
+  res.json({ programs: getPrograms(activeOnly) });
+});
+
+app.get('/bounty/matches', (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.BRAIN_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const limit = parseInt(req.query.limit) || 20;
+  res.json({ matches: getTopMatches(limit) });
+});
+
+app.get('/bounty/matches/:programId', (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.BRAIN_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const program = getProgram(req.params.programId);
+  if (!program) return res.status(404).json({ error: 'Program not found' });
+  const limit = parseInt(req.query.limit) || 20;
+  res.json({ program: program.name, matches: getMatchesForProgram(req.params.programId, limit) });
+});
+
+app.get('/bounty/submissions', (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.BRAIN_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  res.json({ submissions: getSubmissions(req.query), stats: getPayoutStats() });
+});
+
+app.post('/bounty/programs', (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.BRAIN_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const program = addProgram(req.body);
+    res.json({ ok: true, program });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // ─── Cron Jobs ──────────────────────────────────────────
@@ -168,6 +229,32 @@ cron.schedule('*/5 * * * *', async () => {
     console.log(`[CRON] Feed poll complete: ${results.total} CVEs, ${results.newCritical.length} new critical, ${results.newExploits?.length || 0} new exploits, ${ugResults.total} underground items, ${ugResults.newPocs?.length || 0} new PoCs`);
     if (ugResults.errors.length > 0) {
       ugResults.errors.forEach(e => console.log(`  Underground feed error: ${e}`));
+    }
+
+    // Run bounty matching after feeds are updated
+    try {
+      const matchResults = matchCVEsToPrograms();
+      if (matchResults.newMatches.length > 0 && CHAT_ID) {
+        // Alert on top 3 new matches
+        for (const match of matchResults.newMatches.slice(0, 3)) {
+          await sendMessage(CHAT_ID, formatBountyMatch(match));
+
+          // Opus analysis for high-scoring matches (>= 70)
+          if (match.score >= 70) {
+            try {
+              const analysis = await analyzeMatch(match);
+              if (analysis) {
+                await sendMessage(CHAT_ID, formatMatchAnalysis(match, analysis));
+              }
+            } catch (analysisErr) {
+              console.error(`[BOUNTY] Analysis failed for ${match.cveId}:`, analysisErr.message);
+            }
+          }
+        }
+      }
+      console.log(`[CRON] Bounty matching: ${matchResults.newMatches.length} new, ${matchResults.totalMatches} total`);
+    } catch (matchErr) {
+      console.error('[CRON] Bounty matching failed:', matchErr.message);
     }
   } catch (err) {
     console.error('[CRON] Feed poll failed:', err.message);
@@ -424,6 +511,47 @@ function formatExploitAnalysisAlert(analysis) {
   return msg;
 }
 
+function formatBountyMatch(match) {
+  const scoreIcon = match.score >= 80 ? '🔴' : match.score >= 60 ? '🟠' : '🟡';
+  let msg = `${scoreIcon} <b>BOUNTY MATCH: ${match.cveId}</b>\n`;
+  msg += `<b>Program:</b> ${match.programName}\n`;
+  msg += `<b>Score:</b> ${match.score}/100\n`;
+  if (match.cve?.cvss) msg += `<b>CVSS:</b> ${match.cve.cvss}\n`;
+  msg += `\n${match.cve?.description || 'No description'}\n`;
+
+  if (match.techOverlap?.length > 0) {
+    msg += `\n<b>Tech Overlap:</b> ${match.techOverlap.join(', ')}\n`;
+  }
+  if (match.cweMatch?.length > 0) {
+    msg += `<b>CWE Match:</b> ${match.cweMatch.join(', ')}\n`;
+  }
+
+  msg += `\n<b>Breakdown:</b> tech=${match.breakdown?.techStack} cwe=${match.breakdown?.cwe} cvss=${match.breakdown?.cvss} exploit=${match.breakdown?.exploit} fresh=${match.breakdown?.freshness} comp=${match.breakdown?.competition}`;
+
+  if (match.score >= 70) {
+    msg += `\n\n<i>Running Opus 4.6 deep analysis...</i>`;
+  }
+
+  return msg;
+}
+
+function formatMatchAnalysis(match, analysis) {
+  let msg = `<b>🧠 BOUNTY ANALYSIS: ${match.cveId} → ${match.programName}</b>\n\n`;
+  msg += `<b>Verdict:</b> ${analysis.verdict?.toUpperCase() || 'UNKNOWN'}\n`;
+  if (analysis.estimatedBounty) msg += `<b>Est. Bounty:</b> ${analysis.estimatedBounty}\n`;
+  if (analysis.duplicateRisk) msg += `<b>Dupe Risk:</b> ${analysis.duplicateRisk}\n`;
+  if (analysis.timeToTest) msg += `<b>Time to Test:</b> ${analysis.timeToTest}\n`;
+  msg += `\n<b>Strategy:</b> ${analysis.attackStrategy || 'N/A'}\n`;
+  if (analysis.chainPotential) msg += `\n<b>Chain:</b> ${analysis.chainPotential}\n`;
+
+  if (analysis.reportOutline?.length > 0) {
+    msg += `\n<b>Report Outline:</b>\n`;
+    analysis.reportOutline.forEach((s, i) => { msg += `${i + 1}. ${s}\n`; });
+  }
+
+  return msg;
+}
+
 // ─── Global Error Handlers ──────────────────────────────
 process.on('unhandledRejection', (reason) => {
   console.error('[FATAL] Unhandled rejection:', reason);
@@ -436,10 +564,14 @@ process.on('uncaughtException', (err) => {
 
 // ─── Startup ────────────────────────────────────────────
 const server = app.listen(PORT, async () => {
-  console.log(`\n🛡️  Uber Security Agent v2.0`);
+  // Initialize bounty programs
+  loadPrograms();
+
+  console.log(`\n🛡️  Uber Security Agent v2.1`);
   console.log(`   Port: ${PORT}`);
   console.log(`   Model: Claude Opus 4.6`);
   console.log(`   Feeds: 15 (7 core + 8 underground)`);
+  console.log(`   Bounty Programs: ${getPrograms(true).length} active`);
   console.log(`   Core: NVD, CISA KEV, OSV, GitHub, ExploitDB, PacketStorm, THN`);
   console.log(`   Underground: Full Disclosure, oss-security, Vulners, GitHub PoCs, InTheWild, Nuclei, AttackerKB, MITRE ATT&CK`);
   console.log(`   CVE Poll: Every 5 minutes`);
@@ -468,15 +600,18 @@ const server = app.listen(PORT, async () => {
   if (CHAT_ID) {
     try {
       const stats = getCVEStats();
-      let msg = `<b>🛡️ Uber Security Agent v2.0 Online</b>\n\n`;
+      const programs = getPrograms(true);
+      let msg = `<b>🛡️ Uber Security Agent v2.1 Online</b>\n\n`;
       msg += `<b>Model:</b> Claude Opus 4.6\n`;
       msg += `<b>Core Feeds:</b> 7 active\n`;
       msg += `<b>Underground Feeds:</b> 8 active\n`;
+      msg += `<b>Bounty Programs:</b> ${programs.length} active\n`;
       msg += `<b>CVEs loaded:</b> ${stats.totalTracked}\n`;
       msg += `<b>Schedule:</b>\n`;
-      msg += `• Feed poll: every 5 min (15 feeds)\n`;
+      msg += `• Feed poll + bounty match: every 5 min\n`;
       msg += `• Deep analysis: every 15 min\n`;
       msg += `• Daily briefing: 8:00 AM ET\n\n`;
+      msg += `Programs: ${programs.map(p => p.name).join(', ')}\n\n`;
       msg += `Type /help for commands.`;
       await sendMessage(CHAT_ID, msg);
     } catch (err) {
