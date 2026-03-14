@@ -338,8 +338,18 @@ function formatBountyAlert(opportunities) {
   return msg;
 }
 
+// ─── Global Error Handlers ──────────────────────────────
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err);
+  process.exit(1);
+});
+
 // ─── Startup ────────────────────────────────────────────
-app.listen(PORT, async () => {
+const server = app.listen(PORT, async () => {
   console.log(`\n🛡️  Uber Security Agent v1.0`);
   console.log(`   Port: ${PORT}`);
   console.log(`   Model: Claude Opus 4.6`);
@@ -378,3 +388,20 @@ app.listen(PORT, async () => {
     }
   }
 });
+
+// ─── Graceful Shutdown ──────────────────────────────────
+function shutdown(signal) {
+  console.log(`\n[${signal}] Shutting down gracefully...`);
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+  // Force exit after 10s if connections hang
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

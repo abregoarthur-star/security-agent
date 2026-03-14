@@ -73,7 +73,11 @@ export async function handleCommand(message) {
     }
   } catch (err) {
     console.error(`Command ${cmd} failed:`, err.message);
-    await sendMessage(chatId, `<b>Error:</b> ${err.message}`);
+    try {
+      await sendMessage(chatId, `<b>Error:</b> ${err.message}`);
+    } catch (sendErr) {
+      console.error('Failed to send error message to Telegram:', sendErr.message);
+    }
   }
 }
 
