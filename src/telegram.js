@@ -118,7 +118,7 @@ function getHelpMessage() {
   return `<b>🛡️ Security Agent Commands</b>
 
 <b>Intelligence:</b>
-/status — Agent health, feeds, model info
+/status — Agent health, feeds (15), model info
 /stats — CVE statistics (24h)
 /critical — Recent critical/high CVEs
 /cve [ID] — Look up a specific CVE
@@ -127,6 +127,11 @@ function getHelpMessage() {
 /exploits — Recent public exploits
 /news — Security news headlines
 /feeds — Feed health dashboard
+
+<b>Underground Intel:</b>
+/underground — Latest underground intelligence
+/pocs — Recent GitHub PoC exploit repos
+/wild — CVEs exploited in the wild
 
 <b>Deep Analysis (Opus 4.6):</b>
 /analyze [CVE-ID] — Full exploit analysis (exploitability, impact, fix, bounty)
@@ -142,6 +147,7 @@ function getHelpMessage() {
 <b>Automated Alerts:</b>
 • Critical/High CVE alerts — every 5 min
 • New exploit alerts — every 5 min
+• New PoC exploit code alerts — every 5 min
 • Opus 4.6 threat digest — every 15 min
 • Top 3 critical CVE deep analysis — every 15 min
 • Bounty opportunities — every 15 min
@@ -151,13 +157,15 @@ function getHelpMessage() {
 async function handleStatus(chatId) {
   const { getCVEStats, getFeedStatus } = await import('./intel.js');
   const { getLatestAnalysis } = await import('./analysis.js');
+  const { getUndergroundFeedStatus } = await import('./underground.js');
   const stats = getCVEStats();
   const feedStatus = getFeedStatus();
   const analysis = getLatestAnalysis();
+  const ugStatus = getUndergroundFeedStatus();
 
-  let msg = `<b>🛡️ Uber Security Agent Status</b>\n\n`;
+  let msg = `<b>🛡️ Uber Security Agent v2.0 Status</b>\n\n`;
 
-  msg += `<b>Intelligence Feeds (7):</b>\n`;
+  msg += `<b>Core Feeds (7):</b>\n`;
   msg += `• NVD: ${stats.nvdStatus}\n`;
   msg += `• CISA KEV: ${stats.kevStatus}\n`;
   msg += `• OSV.dev: ${stats.osvStatus}\n`;
@@ -165,6 +173,16 @@ async function handleStatus(chatId) {
   msg += `• Exploit-DB: ${stats.exploitdbStatus}\n`;
   msg += `• Packet Storm: ${stats.packetstormStatus}\n`;
   msg += `• The Hacker News: ${stats.thnStatus}\n\n`;
+
+  msg += `<b>Underground Feeds (8):</b>\n`;
+  msg += `• Full Disclosure: ${ugStatus.feeds.fulldisclosure}\n`;
+  msg += `• oss-security: ${ugStatus.feeds.osssecurity}\n`;
+  msg += `• Vulners: ${ugStatus.feeds.vulners}\n`;
+  msg += `• GitHub PoCs: ${ugStatus.feeds.pocs}\n`;
+  msg += `• InTheWild: ${ugStatus.feeds.inthewild}\n`;
+  msg += `• Nuclei Templates: ${ugStatus.feeds.nuclei}\n`;
+  msg += `• AttackerKB: ${ugStatus.feeds.attackerkb}\n`;
+  msg += `• MITRE ATT&CK: ${ugStatus.feeds.mitre}\n\n`;
 
   msg += `<b>Database:</b>\n`;
   msg += `• CVEs tracked: ${stats.totalTracked}\n`;
@@ -506,10 +524,13 @@ async function handleNews(chatId) {
 
 async function handleFeeds(chatId) {
   const { getFeedStatus } = await import('./intel.js');
+  const { getUndergroundFeedStatus } = await import('./underground.js');
   const status = getFeedStatus();
+  const ugStatus = getUndergroundFeedStatus();
 
-  let msg = `<b>📡 Feed Dashboard</b>\n\n`;
+  let msg = `<b>📡 Feed Dashboard (15 Feeds)</b>\n\n`;
 
+  msg += `<b>Core Feeds (7):</b>\n`;
   for (const [name, state] of Object.entries(status.feeds)) {
     const lastPoll = status.lastPolls[name];
     msg += `<b>${name.toUpperCase()}:</b> ${state}\n`;
@@ -517,6 +538,153 @@ async function handleFeeds(chatId) {
     msg += '\n';
   }
 
+  msg += `<b>Underground Feeds (8):</b>\n`;
+  for (const [name, state] of Object.entries(ugStatus.feeds)) {
+    msg += `<b>${name.toUpperCase()}:</b> ${state}\n`;
+  }
+  if (ugStatus.lastPoll) {
+    msg += `\nLast underground poll: ${ugStatus.lastPoll}`;
+  }
+
+  await sendMessage(chatId, msg);
+}
+
+async function handleUnderground(chatId) {
+  const { getUndergroundIntel } = await import('./underground.js');
+  const intel = getUndergroundIntel();
+
+  let msg = `<b>🕵️ Underground Intelligence</b>\n`;
+  msg += `<i>Last poll: ${intel.lastPoll || 'Never'}</i>\n\n`;
+
+  // Full Disclosure
+  if (intel.fullDisclosure.length > 0) {
+    msg += `<b>Full Disclosure:</b>\n`;
+    for (const item of intel.fullDisclosure.slice(0, 3)) {
+      msg += `• ${item.title?.slice(0, 80)}\n`;
+      if (item.cveId) msg += `  CVE: ${item.cveId}\n`;
+    }
+    msg += '\n';
+  }
+
+  // oss-security
+  if (intel.ossSecurity.length > 0) {
+    msg += `<b>oss-security:</b>\n`;
+    for (const item of intel.ossSecurity.slice(0, 3)) {
+      msg += `• ${item.title?.slice(0, 80)}\n`;
+      if (item.cveId) msg += `  CVE: ${item.cveId}\n`;
+    }
+    msg += '\n';
+  }
+
+  // Vulners
+  if (intel.vulners.cves.length > 0 || intel.vulners.exploits.length > 0) {
+    msg += `<b>Vulners (${intel.vulners.cves.length} CVEs, ${intel.vulners.exploits.length} exploits):</b>\n`;
+    for (const item of intel.vulners.cves.slice(0, 3)) {
+      msg += `• ${item.title?.slice(0, 80)}\n`;
+    }
+    msg += '\n';
+  }
+
+  // PoCs
+  if (intel.pocs.length > 0) {
+    msg += `<b>GitHub PoCs (${intel.pocs.length}):</b>\n`;
+    for (const poc of intel.pocs.slice(0, 3)) {
+      msg += `• ${poc.title?.slice(0, 60)}`;
+      if (poc.cveId) msg += ` [${poc.cveId}]`;
+      msg += '\n';
+    }
+    msg += '\n';
+  }
+
+  // InTheWild
+  if (intel.inTheWild.length > 0) {
+    msg += `<b>Exploited in Wild (${intel.inTheWild.length}):</b>\n`;
+    for (const item of intel.inTheWild.slice(0, 3)) {
+      msg += `• ${item.cveId || item.title?.slice(0, 60)}\n`;
+    }
+    msg += '\n';
+  }
+
+  // AttackerKB
+  if (intel.attackerKB.length > 0) {
+    msg += `<b>AttackerKB:</b>\n`;
+    for (const item of intel.attackerKB.slice(0, 3)) {
+      msg += `• ${item.title?.slice(0, 80)}\n`;
+    }
+    msg += '\n';
+  }
+
+  // Nuclei Templates
+  if (intel.nucleiTemplates.length > 0) {
+    msg += `<b>Nuclei Templates:</b>\n`;
+    for (const item of intel.nucleiTemplates.slice(0, 3)) {
+      msg += `• ${item.title?.slice(0, 80)}\n`;
+    }
+    msg += '\n';
+  }
+
+  // MITRE ATT&CK
+  if (intel.mitreAttack.length > 0) {
+    msg += `<b>MITRE ATT&CK (recent):</b>\n`;
+    for (const item of intel.mitreAttack.slice(0, 3)) {
+      msg += `• ${item.title?.slice(0, 80)}\n`;
+    }
+  }
+
+  const totalItems = intel.fullDisclosure.length + intel.ossSecurity.length +
+    intel.vulners.cves.length + intel.vulners.exploits.length +
+    intel.pocs.length + intel.inTheWild.length +
+    intel.nucleiTemplates.length + intel.attackerKB.length + intel.mitreAttack.length;
+
+  if (totalItems === 0) {
+    msg += 'No underground intelligence loaded yet. First poll runs on startup.';
+  }
+
+  await sendMessage(chatId, msg);
+}
+
+async function handlePOCs(chatId) {
+  const { getNewPOCs } = await import('./underground.js');
+  const pocs = getNewPOCs();
+
+  if (pocs.length === 0) {
+    await sendMessage(chatId, 'No PoC exploit repos found yet.');
+    return;
+  }
+
+  let msg = `<b>🔥 GitHub PoC Exploit Repos</b>\n\n`;
+  for (const poc of pocs.slice(0, 10)) {
+    msg += `<b>${poc.title}</b>\n`;
+    if (poc.cveId) msg += `CVE: ${poc.cveId}\n`;
+    if (poc.url) msg += `${poc.url}\n`;
+    msg += `${poc.description?.slice(0, 120) || ''}\n\n`;
+  }
+
+  msg += `<i>Total: ${pocs.length} PoC repos tracked</i>`;
+  await sendMessage(chatId, msg);
+}
+
+async function handleWild(chatId) {
+  const { getExploitedInWild } = await import('./underground.js');
+  const wild = getExploitedInWild();
+
+  if (wild.length === 0) {
+    await sendMessage(chatId, 'No in-the-wild exploitation data loaded yet.');
+    return;
+  }
+
+  let msg = `<b>🌍 CVEs Exploited in the Wild</b>\n`;
+  msg += `<i>Source: InTheWild.io</i>\n\n`;
+  for (const item of wild.slice(0, 15)) {
+    msg += `• <b>${item.cveId || 'Unknown'}</b>`;
+    if (item.published) msg += ` — ${new Date(item.published).toLocaleDateString()}`;
+    msg += '\n';
+    if (item.description && !item.description.includes('is being actively exploited')) {
+      msg += `  ${item.description.slice(0, 100)}\n`;
+    }
+  }
+
+  msg += `\n<i>Total: ${wild.length} CVEs with confirmed exploitation</i>`;
   await sendMessage(chatId, msg);
 }
 
