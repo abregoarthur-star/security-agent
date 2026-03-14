@@ -121,7 +121,7 @@ function getHelpMessage() {
 /feeds — Feed health dashboard
 
 <b>Scanning:</b>
-/scan [domain] — Security header check
+/scan [domain] — Full security scan
 
 <b>System:</b>
 /chatid — Show your chat ID
@@ -273,51 +273,84 @@ async function handleStats(chatId) {
 
 async function handleScan(chatId, domain) {
   if (!domain) {
-    await sendMessage(chatId, 'Usage: /scan example.com\n\nChecks SSL, security headers, and server info.');
+    await sendMessage(chatId, 'Usage: /scan example.com\n\nComprehensive security scan: SSL, headers, DNS, tech detection, exposure checks.');
     return;
   }
 
-  await sendMessage(chatId, `<b>🔍 Scanning ${domain}...</b>`);
+  await sendMessage(chatId, `<b>🔍 Scanning ${domain}...</b>\n<i>Running SSL, headers, DNS, technology, and exposure checks...</i>`);
 
   try {
-    const results = await quickScan(domain);
-    let msg = `<b>🔍 Scan: ${domain}</b>\n\n`;
+    const { runDomainScan } = await import('./scanner.js');
+    const results = await runDomainScan(domain);
 
-    // Score
-    let score = 0;
-    const checks = [];
+    // Build the report — split into multiple messages if needed
+    let msg = `<b>🔍 Scan Report: ${results.domain}</b>\n`;
+    msg += `<i>Completed in ${(results.scanTime / 1000).toFixed(1)}s</i>\n\n`;
 
-    if (results.ssl) { score += 20; checks.push('✅ SSL/TLS valid'); }
-    else checks.push('❌ SSL/TLS invalid or missing');
+    // Score and grade
+    msg += `<b>Security Score: ${results.score}/100 (${results.grade})</b>\n`;
+    msg += `Findings: ${results.summary.critical} critical, ${results.summary.high} high, ${results.summary.medium} medium, ${results.summary.low} low, ${results.summary.info} info\n\n`;
 
-    if (results.httpsRedirect) { score += 10; checks.push('✅ HTTPS redirect'); }
-    else checks.push('⚠️ No HTTPS redirect');
+    // Critical and High findings first
+    const urgent = results.findings.filter(f => (f.severity === 'CRITICAL' || f.severity === 'HIGH') && f.status !== 'PASS' && f.status !== 'INFO');
+    if (urgent.length > 0) {
+      msg += `<b>🔴 Critical/High Issues:</b>\n`;
+      for (const f of urgent) {
+        const icon = f.severity === 'CRITICAL' ? '🔴' : '🟠';
+        msg += `${icon} <b>[${f.severity}]</b> ${f.check}\n`;
+        msg += `   ${f.detail}\n`;
+      }
+      msg += '\n';
+    }
 
-    if (results.headers.hsts) { score += 15; checks.push('✅ HSTS enabled'); }
-    else checks.push('❌ No HSTS');
+    // Medium findings
+    const medium = results.findings.filter(f => f.severity === 'MEDIUM' && f.status !== 'PASS' && f.status !== 'INFO');
+    if (medium.length > 0) {
+      msg += `<b>🟡 Medium Issues:</b>\n`;
+      for (const f of medium) {
+        msg += `⚠️ ${f.check}: ${f.detail}\n`;
+      }
+      msg += '\n';
+    }
 
-    if (results.headers.csp) { score += 20; checks.push('✅ Content Security Policy'); }
-    else checks.push('❌ No CSP');
+    // Passed checks summary
+    const passed = results.findings.filter(f => f.status === 'PASS');
+    if (passed.length > 0) {
+      msg += `<b>✅ Passed (${passed.length}):</b>\n`;
+      for (const f of passed) {
+        msg += `✅ ${f.check}\n`;
+      }
+      msg += '\n';
+    }
 
-    if (results.headers.xfo) { score += 10; checks.push('✅ X-Frame-Options'); }
-    else checks.push('❌ No X-Frame-Options');
+    // Technology detection
+    if (results.technology?.server || results.technology?.poweredBy || results.technology?.detectedTech?.length > 0) {
+      msg += `<b>🔧 Technology:</b>\n`;
+      if (results.technology.server) msg += `Server: ${results.technology.server}\n`;
+      if (results.technology.poweredBy) msg += `X-Powered-By: ${results.technology.poweredBy} ⚠️\n`;
+      if (results.technology.detectedTech?.length > 0) msg += `Stack: ${results.technology.detectedTech.join(', ')}\n`;
+      msg += '\n';
+    }
 
-    if (results.headers.xcto) { score += 10; checks.push('✅ X-Content-Type-Options'); }
-    else checks.push('❌ No X-Content-Type-Options');
+    // DNS summary
+    if (results.dns && !results.dns.error) {
+      msg += `<b>📡 DNS:</b>\n`;
+      if (results.dns.a?.length) msg += `A: ${results.dns.a.slice(0, 2).join(', ')}\n`;
+      if (results.dns.ns?.length) msg += `NS: ${results.dns.ns.slice(0, 2).join(', ')}\n`;
+      if (results.dns.mx?.length) msg += `MX: ${results.dns.mx.slice(0, 2).map(m => m.exchange).join(', ')}\n`;
+      msg += `Email: SPF ${results.dns.emailSecurity?.spf ? '✅' : '❌'} | DMARC ${results.dns.emailSecurity?.dmarc ? '✅' : '❌'} | DKIM ${results.dns.emailSecurity?.dkim ? '✅' : '❌'}\n`;
+      msg += '\n';
+    }
 
-    if (results.headers.referrer) { score += 5; checks.push('✅ Referrer-Policy'); }
-    else checks.push('⚠️ No Referrer-Policy');
-
-    if (results.headers.permissions) { score += 10; checks.push('✅ Permissions-Policy'); }
-    else checks.push('⚠️ No Permissions-Policy');
-
-    const grade = score >= 80 ? 'A' : score >= 60 ? 'B' : score >= 40 ? 'C' : score >= 20 ? 'D' : 'F';
-    msg += `<b>Security Score: ${score}/100 (${grade})</b>\n\n`;
-
-    checks.forEach(c => { msg += `${c}\n`; });
-
-    if (results.server) msg += `\n<b>Server:</b> ${results.server}`;
-    if (results.poweredBy) msg += `\n<b>X-Powered-By:</b> ${results.poweredBy} ⚠️ (info leak)`;
+    // Exposure alerts
+    const exposures = results.exposures?.filter(e => e.exposed) || [];
+    if (exposures.length > 0) {
+      msg += `<b>🚨 Exposed Paths:</b>\n`;
+      for (const e of exposures) {
+        const icon = e.severity === 'CRITICAL' ? '🔴' : e.severity === 'HIGH' ? '🟠' : '🟡';
+        msg += `${icon} ${e.path} (HTTP ${e.status}) — ${e.desc}\n`;
+      }
+    }
 
     await sendMessage(chatId, msg);
   } catch (err) {
@@ -472,53 +505,6 @@ async function handleFeeds(chatId) {
   }
 
   await sendMessage(chatId, msg);
-}
-
-// ─── Quick Scan ─────────────────────────────────────────
-
-async function quickScan(domain) {
-  const results = {
-    ssl: false, httpsRedirect: false,
-    headers: { hsts: false, csp: false, xfo: false, xcto: false, referrer: false, permissions: false },
-    server: null, poweredBy: null,
-  };
-
-  try {
-    const httpsRes = await fetch(`https://${domain}`, {
-      method: 'HEAD',
-      redirect: 'manual',
-      signal: AbortSignal.timeout(10000),
-    });
-
-    results.ssl = true;
-    results.server = httpsRes.headers.get('server');
-    results.poweredBy = httpsRes.headers.get('x-powered-by');
-
-    const h = httpsRes.headers;
-    results.headers = {
-      hsts: !!h.get('strict-transport-security'),
-      csp: !!h.get('content-security-policy'),
-      xfo: !!h.get('x-frame-options'),
-      xcto: !!h.get('x-content-type-options'),
-      referrer: !!h.get('referrer-policy'),
-      permissions: !!h.get('permissions-policy'),
-    };
-  } catch {
-    try {
-      const httpRes = await fetch(`http://${domain}`, {
-        method: 'HEAD',
-        redirect: 'manual',
-        signal: AbortSignal.timeout(10000),
-      });
-
-      results.server = httpRes.headers.get('server');
-      results.poweredBy = httpRes.headers.get('x-powered-by');
-      const location = httpRes.headers.get('location');
-      results.httpsRedirect = location?.startsWith('https://');
-    } catch {}
-  }
-
-  return results;
 }
 
 function formatUptime(seconds) {
