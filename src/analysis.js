@@ -1,24 +1,35 @@
 /**
- * AI-Powered Threat Analysis
+ * AI-Powered Threat Analysis — Opus 4.6
  *
- * Uses Claude Haiku to analyze the current CVE landscape
- * and generate actionable threat intelligence.
+ * This is for making money. We use the best model available
+ * to produce institutional-grade threat intelligence.
+ *
+ * Opus 4.6 analyzes:
+ * - CVE landscape for bug bounty opportunities
+ * - Exploit availability and weaponization risk
+ * - Attack surface trends across industries
+ * - Which vulns to write Nuclei templates for
+ * - SMB monitoring priorities
  */
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 
 let latestAnalysis = null;
+let analysisHistory = [];
 
 /**
- * Run Claude-powered threat landscape analysis.
+ * Run Opus 4.6 threat landscape analysis.
  */
 export async function runAnalysis() {
-  const { getCVEStats, getRecentCritical } = await import('./intel.js');
+  const { getCVEStats, getRecentCritical, getBountyRelevantCVEs, getRecentExploits, getSecurityNews } = await import('./intel.js');
 
   const stats = getCVEStats();
   const critical = getRecentCritical();
+  const bountyRelevant = getBountyRelevantCVEs();
+  const exploits = getRecentExploits();
+  const news = getSecurityNews();
 
-  if (critical.length === 0 && stats.totalTracked === 0) {
+  if (stats.totalTracked === 0) {
     console.log('No CVE data yet, skipping analysis');
     return null;
   }
@@ -29,8 +40,27 @@ export async function runAnalysis() {
     return null;
   }
 
-  const cveContext = critical.slice(0, 15).map(c =>
-    `${c.id} (CVSS: ${c.cvss || '?'}) — ${c.description?.slice(0, 200) || 'No description'}${c.cisaKEV ? ' [CISA KEV]' : ''}${c.exploitAvailable ? ' [EXPLOIT]' : ''}`
+  // Build comprehensive context
+  const cveContext = critical.slice(0, 20).map(c =>
+    `${c.id} (CVSS: ${c.cvss || '?'}, ${c.severity || '?'}) — ${c.description?.slice(0, 250) || 'No description'}` +
+    `${c.cisaKEV ? ' [ACTIVELY EXPLOITED - CISA KEV]' : ''}` +
+    `${c.exploitAvailable ? ' [EXPLOIT AVAILABLE]' : ''}` +
+    `${c.bountyRelevant ? ' [BOUNTY RELEVANT]' : ''}` +
+    `${c.attackVector ? ` [${c.attackVector}]` : ''}` +
+    `${c.weaknesses?.length ? ` [${c.weaknesses.join(', ')}]` : ''}`
+  ).join('\n\n');
+
+  const bountyContext = bountyRelevant.slice(0, 10).map(c =>
+    `${c.id} (CVSS: ${c.cvss}) — ${c.description?.slice(0, 150)}` +
+    `${c.weaknesses?.length ? ` | Weaknesses: ${c.weaknesses.join(', ')}` : ''}`
+  ).join('\n');
+
+  const exploitContext = exploits.slice(0, 10).map(e =>
+    `${e.title}${e.cveId ? ` (${e.cveId})` : ''} — ${e.source}`
+  ).join('\n');
+
+  const newsContext = news.slice(0, 10).map(n =>
+    `${n.title} — ${n.source}`
   ).join('\n');
 
   const res = await fetch(ANTHROPIC_API, {
@@ -41,34 +71,64 @@ export async function runAnalysis() {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20241022',
-      max_tokens: 512,
-      system: `You are a senior cybersecurity threat analyst. Analyze CVE data and produce actionable intelligence.
+      model: 'claude-opus-4-6',
+      max_tokens: 2048,
+      system: `You are an elite cybersecurity threat analyst and bug bounty strategist running an autonomous security intelligence operation. Your analysis directly drives revenue through:
 
-Focus on:
-1. Which vulnerabilities pose the highest real-world risk RIGHT NOW
-2. Active exploitation trends (CISA KEV additions = actively exploited)
-3. Supply chain implications (popular libraries/frameworks affected)
-4. Sector-specific impact (which industries should patch urgently)
-5. Defensive recommendations
+1. BUG BOUNTY HUNTING — Identify which new CVEs can be turned into bounty reports. Focus on web-facing vulnerabilities (XSS, SQLi, SSRF, auth bypass, RCE) in software used by companies with active bounty programs.
+
+2. EXPLOIT WEAPONIZATION — Track which CVEs have public exploits. These are highest priority — if an exploit exists, targets are vulnerable NOW and need to be scanned immediately.
+
+3. NUCLEI TEMPLATE OPPORTUNITIES — Identify CVEs where we should write custom Nuclei templates before the community does. First-to-scan advantage = first-to-find = bounty is ours.
+
+4. SMB MONITORING PRIORITIES — Which vulnerabilities affect common SMB stacks (WordPress, Shopify, AWS, Azure, GCP, nginx, Apache)? These drive our SaaS monitoring product.
+
+5. ATTACK SURFACE TRENDS — What attack vectors are trending? Where should we focus scanning resources?
+
+6. ZERO-DAY AWARENESS — Track actively exploited vulns (CISA KEV). These represent the highest-severity threats and generate the most valuable intelligence for customers.
+
+Think like a hedge fund PM but for cybersecurity. Every CVE is a potential revenue opportunity.
 
 Respond in JSON only:
 {
   "alertLevel": "low|medium|high|critical",
-  "summary": "2-3 sentence executive summary",
-  "threats": ["specific threat 1", "threat 2", "threat 3"],
-  "affectedSectors": ["sector1", "sector2"],
-  "recommendations": ["action1", "action2", "action3"],
-  "exploitTrends": "one sentence on current exploit trends"
+  "summary": "3-5 sentence executive summary of the threat landscape",
+  "threats": ["specific active threat with affected products"],
+  "bountyOpportunities": [
+    {"cveId": "CVE-xxx", "target": "what to scan", "estimatedBounty": "$500-$5000", "difficulty": "low|medium|high", "strategy": "how to find this in the wild"}
+  ],
+  "nucleiTemplatePriority": ["CVE to write template for — reason"],
+  "smbAlerts": ["what SMB customers need to patch NOW"],
+  "exploitWatch": ["newly weaponized vulns to monitor"],
+  "affectedSectors": ["sector: specific impact"],
+  "attackTrends": ["trending attack vector or technique"],
+  "recommendations": ["specific action item"],
+  "marketIntel": "one sentence on how this affects the cybersecurity market/stocks"
 }`,
       messages: [{
         role: 'user',
-        content: `Analyze today's vulnerability landscape:
+        content: `THREAT INTELLIGENCE BRIEFING — ${new Date().toISOString()}
 
-CVE Stats: ${stats.totalTracked} tracked, ${stats.critical24h} critical in 24h, ${stats.kevTotal} in CISA KEV catalog
+CVE STATS:
+• Total tracked: ${stats.totalTracked}
+• Critical (24h): ${stats.critical24h}
+• High (24h): ${stats.high24h}
+• Bounty-relevant: ${stats.bountyRelevant24h}
+• Exploits available: ${stats.exploitsAvailable}
+• CISA KEV catalog: ${stats.kevTotal} total, ${stats.kevNew} new today
+• GitHub advisories: ${stats.ghAdvisoryCount}
 
-Recent Critical CVEs:
-${cveContext || 'No critical CVEs in the last 24 hours.'}`,
+CRITICAL/HIGH CVEs:
+${cveContext || 'No critical CVEs in the last 24 hours.'}
+
+BOUNTY-RELEVANT CVEs:
+${bountyContext || 'None identified.'}
+
+RECENT EXPLOITS (Exploit-DB + PacketStorm):
+${exploitContext || 'No new exploits.'}
+
+SECURITY NEWS:
+${newsContext || 'No recent news.'}`,
       }],
     }),
   });
@@ -89,11 +149,18 @@ ${cveContext || 'No critical CVEs in the last 24 hours.'}`,
     latestAnalysis = {
       ...parsed,
       timestamp: new Date().toISOString(),
+      model: 'claude-opus-4-6',
+      inputTokens: result.usage?.input_tokens,
+      outputTokens: result.usage?.output_tokens,
     };
+
+    // Keep analysis history (last 24 entries = 24 hours at hourly)
+    analysisHistory.push(latestAnalysis);
+    if (analysisHistory.length > 24) analysisHistory.shift();
 
     return latestAnalysis;
   } catch (err) {
-    console.error('Failed to parse analysis:', err.message);
+    console.error('Failed to parse analysis:', err.message, text.slice(0, 200));
     return null;
   }
 }
@@ -103,4 +170,11 @@ ${cveContext || 'No critical CVEs in the last 24 hours.'}`,
  */
 export function getLatestAnalysis() {
   return latestAnalysis;
+}
+
+/**
+ * Get analysis history (last 24 hours).
+ */
+export function getAnalysisHistory() {
+  return analysisHistory;
 }
