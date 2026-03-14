@@ -206,8 +206,14 @@ export async function pollCVEFeeds() {
 
 // ─── NVD ────────────────────────────────────────────────
 
+let nvdFirstPoll = true;
+
 async function pollNVD() {
-  const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  // First poll after startup: fetch 24h of CVEs to seed the store.
+  // Subsequent polls: 2h window for incremental updates.
+  const lookback = nvdFirstPoll ? 24 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
+  nvdFirstPoll = false;
+  const since = new Date(Date.now() - lookback).toISOString();
 
   const params = new URLSearchParams({
     pubStartDate: since,
