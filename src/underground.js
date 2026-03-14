@@ -353,7 +353,7 @@ async function pollVulDB() {
     'https://vuldb.com/?rss.recent',
     {
       signal: AbortSignal.timeout(15000),
-      headers: { 'User-Agent': 'SecurityAgent/1.0' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SecurityAgent/2.1)' },
     }
   );
 
