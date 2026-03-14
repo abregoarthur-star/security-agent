@@ -43,7 +43,7 @@ export async function pollCVEFeeds() {
     pollOSV(),
     pollGitHubAdvisories(),
     pollExploitDB(),
-    pollPacketStorm(),
+    pollSploitus(),
     pollTheHackerNews(),
   ]);
 
@@ -164,7 +164,7 @@ export async function pollCVEFeeds() {
     cveStore.feedStatus.exploitdb = `❌ ${edbResult.reason?.message?.slice(0, 50)}`;
   }
 
-  // ── Packet Storm ──
+  // ── Sploitus (replaced PacketStorm) ──
   if (psResult.status === 'fulfilled') {
     cveStore.feedStatus.packetstorm = '✅ Active';
     cveStore.lastPacketStormPoll = new Date().toISOString();
@@ -174,7 +174,7 @@ export async function pollCVEFeeds() {
         const cve = cveStore.cves.find(c => c.id === item.cveId);
         if (cve) {
           cve.exploitAvailable = true;
-          cve.packetStormUrl = item.url;
+          cve.sploitusUrl = item.url;
         }
       }
     }
@@ -470,26 +470,27 @@ async function pollExploitDB() {
   return { exploits, newExploits };
 }
 
-// ─── Packet Storm Security ──────────────────────────────
+// ─── Sploitus (replaced PacketStorm — TOS wall blocks automated access) ──
 
-async function pollPacketStorm() {
-  const res = await fetch('https://rss.packetstormsecurity.com/files/tags/exploit/', {
+async function pollSploitus() {
+  const res = await fetch('https://sploitus.com/rss', {
     signal: AbortSignal.timeout(15000),
     headers: { 'User-Agent': 'SecurityAgent/1.0' },
   });
 
-  if (!res.ok) throw new Error(`PacketStorm: ${res.status}`);
+  if (!res.ok) throw new Error(`Sploitus: ${res.status}`);
 
   const xml = await res.text();
   const items = parseRSSItems(xml).map(item => {
-    const cveMatch = item.title?.match(/CVE-\d{4}-\d+/i);
+    const cveMatch = item.title?.match(/CVE-\d{4}-\d+/i) ||
+                     item.description?.match(/CVE-\d{4}-\d+/i);
     return {
       title: item.title,
       url: item.link,
       published: item.pubDate,
-      description: item.description?.slice(0, 300),
+      description: item.description?.replace(/<[^>]+>/g, '')?.slice(0, 300),
       cveId: cveMatch ? cveMatch[0].toUpperCase() : null,
-      source: 'PacketStorm',
+      source: 'Sploitus',
     };
   });
 

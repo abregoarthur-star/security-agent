@@ -276,11 +276,13 @@ async function pollGitHubPOCs() {
 // ─── 5. InTheWild.io ────────────────────────────────────
 
 async function pollInTheWild() {
+  // Original GitHub repo (inthewildio/exploited) was deleted.
+  // Use the official API endpoint instead.
   const res = await fetch(
-    'https://raw.githubusercontent.com/inthewildio/exploited/main/exploited.json',
+    'https://inthewild.io/api/exploited',
     {
       signal: AbortSignal.timeout(15000),
-      headers: { 'User-Agent': 'SecurityAgent/1.0' },
+      headers: { 'User-Agent': 'SecurityAgent/1.0', 'Accept': 'application/json' },
     }
   );
 
@@ -288,15 +290,16 @@ async function pollInTheWild() {
 
   const data = await res.json();
 
-  // data is an array of CVE objects with exploitation dates
+  // API returns [{id: "CVE-2025-XXXX", earliestReport: "2025-03-10T00:00:00.000Z"}, ...]
   const items = (Array.isArray(data) ? data : []).slice(0, 50).map(entry => {
+    const cveId = entry.id || entry.cve || null;
     return makeIntelItem({
-      title: `${entry.cve || entry.id} — Exploited in the Wild`,
-      url: `https://inthewild.io/vuln/${entry.cve || entry.id}`,
-      cveId: entry.cve || entry.id || null,
-      published: entry.timestamp || entry.date || entry.added,
+      title: `${cveId} — Exploited in the Wild`,
+      url: `https://inthewild.io/vuln/${cveId}`,
+      cveId,
+      published: entry.earliestReport || entry.timestamp || entry.date,
       source: 'InTheWild',
-      description: entry.description || `${entry.cve || entry.id} is being actively exploited in the wild`,
+      description: `${cveId} is being actively exploited in the wild (first reported: ${entry.earliestReport || 'unknown'})`,
       type: 'exploit',
     });
   });
@@ -343,33 +346,29 @@ async function pollNucleiTemplates() {
   return items;
 }
 
-// ─── 7. AttackerKB (Rapid7) ─────────────────────────────
+// ─── 7. VulDB (replaced AttackerKB — CloudFront WAF blocks all API requests) ──
 
-async function pollAttackerKB() {
-  // AttackerKB has a public API
+async function pollVulDB() {
   const res = await fetch(
-    'https://attackerkb.com/api/topics?size=20&sort=created&direction=desc',
+    'https://vuldb.com/?rss.recent',
     {
       signal: AbortSignal.timeout(15000),
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'SecurityAgent/1.0',
-      },
+      headers: { 'User-Agent': 'SecurityAgent/1.0' },
     }
   );
 
-  if (!res.ok) throw new Error(`AttackerKB: ${res.status}`);
+  if (!res.ok) throw new Error(`VulDB: ${res.status}`);
 
-  const data = await res.json();
-  const items = (data.data || []).map(topic => {
-    const cveIds = extractCVEIds(`${topic.name} ${topic.document}`);
+  const xml = await res.text();
+  const items = parseRSSItems(xml).map(item => {
+    const cveIds = extractCVEIds(`${item.title} ${item.description}`);
     return makeIntelItem({
-      title: topic.name || 'AttackerKB Topic',
-      url: `https://attackerkb.com/topics/${topic.id}`,
-      cveId: cveIds[0] || topic.name?.match(/^CVE-/i) ? topic.name : null,
-      published: topic.created,
-      source: 'AttackerKB',
-      description: topic.document?.replace(/<[^>]+>/g, '')?.slice(0, 400) || topic.name,
+      title: item.title,
+      url: item.link,
+      cveId: cveIds[0] || null,
+      published: item.pubDate,
+      source: 'VulDB',
+      description: item.description?.replace(/<[^>]+>/g, '')?.slice(0, 400) || item.title,
       type: 'disclosure',
     });
   });
@@ -451,7 +450,7 @@ export async function pollUndergroundFeeds() {
     pollGitHubPOCs(),
     pollInTheWild(),
     pollNucleiTemplates(),
-    pollAttackerKB(),
+    pollVulDB(),
     pollMITREAttack(),
   ]);
 
