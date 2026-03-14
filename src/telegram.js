@@ -1,7 +1,7 @@
 /**
  * Telegram Bot — Security Agent Commands & Alerts
  *
- * 13 commands for maximum control. HTML parse mode.
+ * 16 commands for maximum control. HTML parse mode.
  */
 
 const TELEGRAM_API = 'https://api.telegram.org/bot';
@@ -64,6 +64,11 @@ export async function handleCommand(message) {
       case '/exploits': await handleExploits(chatId); break;
       case '/news': await handleNews(chatId); break;
       case '/feeds': await handleFeeds(chatId); break;
+      case '/underground': await handleUnderground(chatId); break;
+      case '/pocs': await handlePOCs(chatId); break;
+      case '/wild': await handleWild(chatId); break;
+      case '/analyze': await handleAnalyzeCVE(chatId, args); break;
+      case '/template': await handleTemplateCVE(chatId, args); break;
       case '/chatid': await sendMessage(chatId, `Your chat ID: <code>${chatId}</code>`); break;
       case '/help': await sendMessage(chatId, getHelpMessage()); break;
       default:
@@ -82,25 +87,28 @@ export async function handleCommand(message) {
 }
 
 function getStartMessage() {
-  return `<b>🛡️ Uber Security Agent</b>
+  return `<b>🛡️ Uber Security Agent v2.0</b>
 
 Autonomous CVE intelligence and vulnerability monitoring powered by Claude Opus 4.6.
 
-<b>7 Intelligence Feeds:</b>
-• NVD (National Vulnerability Database)
-• CISA KEV (Known Exploited Vulnerabilities)
-• OSV.dev (Open Source Vulnerabilities)
-• GitHub Security Advisories
-• Exploit-DB (new exploits)
-• Packet Storm Security
-• The Hacker News
+<b>15 Intelligence Feeds:</b>
+
+<b>Core (7):</b>
+• NVD, CISA KEV, OSV.dev, GitHub Advisories
+• Exploit-DB, Packet Storm, The Hacker News
+
+<b>Underground (8):</b>
+• Full Disclosure, oss-security
+• Vulners.com (200+ sources)
+• GitHub PoC Monitor, InTheWild.io
+• Nuclei Templates, AttackerKB, MITRE ATT&CK
 
 <b>Capabilities:</b>
-• Real-time critical CVE + exploit alerts
+• Real-time critical CVE + exploit + PoC alerts
+• Underground intelligence from researcher communities
 • Opus 4.6 threat landscape analysis (every 15 min)
 • Bug bounty opportunity identification
-• Nuclei template prioritization
-• SMB vulnerability monitoring
+• In-the-wild exploitation tracking
 • Daily security briefings (8 AM ET)
 
 Type /help for all commands.`;
@@ -120,6 +128,10 @@ function getHelpMessage() {
 /news — Security news headlines
 /feeds — Feed health dashboard
 
+<b>Deep Analysis (Opus 4.6):</b>
+/analyze [CVE-ID] — Full exploit analysis (exploitability, impact, fix, bounty)
+/template [CVE-ID] — Generate Nuclei detection template
+
 <b>Scanning:</b>
 /scan [domain] — Full security scan
 
@@ -131,6 +143,7 @@ function getHelpMessage() {
 • Critical/High CVE alerts — every 5 min
 • New exploit alerts — every 5 min
 • Opus 4.6 threat digest — every 15 min
+• Top 3 critical CVE deep analysis — every 15 min
 • Bounty opportunities — every 15 min
 • Daily briefing — 8:00 AM ET`;
 }
@@ -503,6 +516,136 @@ async function handleFeeds(chatId) {
     if (lastPoll) msg += `  Last poll: ${lastPoll}\n`;
     msg += '\n';
   }
+
+  await sendMessage(chatId, msg);
+}
+
+async function handleAnalyzeCVE(chatId, cveId) {
+  if (!cveId) {
+    await sendMessage(chatId, 'Usage: /analyze CVE-2024-3094\n\nDeep AI analysis: exploitability, impact, fix strategy, bounty potential.');
+    return;
+  }
+
+  await sendMessage(chatId, `<b>🧠 Analyzing ${cveId} with Opus 4.6...</b>\n<i>Running exploitability, impact, fix, and bounty analysis...</i>`);
+
+  const { searchCVE } = await import('./intel.js');
+  const results = await searchCVE(cveId.toUpperCase());
+
+  if (results.length === 0) {
+    await sendMessage(chatId, `No CVE data found for <code>${cveId}</code>. Try /cve first to verify it exists.`);
+    return;
+  }
+
+  const { analyzeExploit } = await import('./exploit-analysis.js');
+  const analysis = await analyzeExploit(results[0]);
+
+  if (analysis.error) {
+    await sendMessage(chatId, `<b>Analysis failed:</b> ${analysis.error}\n\n${analysis.rawText?.slice(0, 500) || ''}`);
+    return;
+  }
+
+  // Exploitability
+  let msg = `<b>🧠 EXPLOIT ANALYSIS: ${analysis.cveId}</b>\n`;
+  msg += `<i>Risk: ${analysis.overallRisk?.toUpperCase() || 'UNKNOWN'}</i>\n\n`;
+  msg += `<b>TL;DR:</b> ${analysis.tldr || 'N/A'}\n\n`;
+
+  if (analysis.exploitability) {
+    const e = analysis.exploitability;
+    msg += `<b>Exploitability:</b>\n`;
+    msg += `• Difficulty: ${e.difficulty || 'N/A'}\n`;
+    msg += `• Skill Level: ${e.skillLevel || 'N/A'}\n`;
+    msg += `• Time to Exploit: ${e.timeToExploit || 'N/A'}\n`;
+    msg += `• Auth Required: ${e.authRequired || 'N/A'}\n`;
+    msg += `• Exploit Maturity: ${e.exploitMaturity || 'N/A'}\n`;
+    if (e.prerequisites?.length) {
+      msg += `• Prerequisites: ${e.prerequisites.join(', ')}\n`;
+    }
+    msg += '\n';
+  }
+
+  // Impact
+  if (analysis.impact) {
+    const i = analysis.impact;
+    msg += `<b>Impact:</b>\n`;
+    msg += `• Worst Case: ${i.worstCase || 'N/A'}\n`;
+    msg += `• Data Exposure: ${i.dataExposure || 'N/A'}\n`;
+    msg += `• Lateral Movement: ${i.lateralMovement || 'N/A'}\n`;
+    msg += `• Persistence: ${i.persistence || 'N/A'}\n`;
+    msg += `• Blast Radius: ${i.blastRadius || 'N/A'}\n`;
+    msg += '\n';
+  }
+
+  // Send first message (exploitability + impact)
+  await sendMessage(chatId, msg);
+
+  // Fix
+  let msg2 = '';
+  if (analysis.fix) {
+    const f = analysis.fix;
+    msg2 += `<b>Fix/Remediation:</b>\n`;
+    msg2 += `• Priority: ${f.priority || 'N/A'}\n`;
+    msg2 += `• Fix: ${f.primaryFix || 'N/A'}\n`;
+    msg2 += `• Time to Fix: ${f.timeToFix || 'N/A'}\n`;
+    msg2 += `• Vendor Patch: ${f.vendorPatchStatus || 'N/A'}\n`;
+    if (f.workaround) msg2 += `• Workaround: ${f.workaround}\n`;
+    if (f.steps?.length) {
+      msg2 += `• Steps:\n`;
+      f.steps.forEach((s, i) => { msg2 += `  ${i + 1}. ${s}\n`; });
+    }
+    msg2 += '\n';
+  }
+
+  // Bounty
+  if (analysis.bounty) {
+    const b = analysis.bounty;
+    msg2 += `<b>Bounty Strategy:</b>\n`;
+    msg2 += `• Worth Reporting: ${b.worthReporting ? 'YES' : 'NO'}\n`;
+    msg2 += `• Estimated Bounty: ${b.estimatedBounty || 'N/A'}\n`;
+    msg2 += `• Duplicate Risk: ${b.duplicateRisk || 'N/A'}\n`;
+    if (b.targetPrograms?.length) {
+      msg2 += `• Programs: ${b.targetPrograms.join(', ')}\n`;
+    }
+    if (b.reportStrategy) msg2 += `• Strategy: ${b.reportStrategy}\n`;
+    if (b.chainPotential) msg2 += `• Chain Potential: ${b.chainPotential}\n`;
+    msg2 += '\n';
+  }
+
+  // Nuclei template feasibility
+  if (analysis.nucleiTemplate) {
+    const n = analysis.nucleiTemplate;
+    msg2 += `<b>Nuclei Template:</b>\n`;
+    msg2 += `• Feasible: ${n.feasible ? 'YES' : 'NO'}\n`;
+    msg2 += `• Detection: ${n.detectionMethod || 'N/A'}\n`;
+    msg2 += `• FP Risk: ${n.falsePositiveRisk || 'N/A'}\n`;
+    if (n.feasible) msg2 += `\nUse /template ${analysis.cveId} to generate the template.\n`;
+  }
+
+  if (msg2) {
+    await sendMessage(chatId, msg2);
+  }
+}
+
+async function handleTemplateCVE(chatId, cveId) {
+  if (!cveId) {
+    await sendMessage(chatId, 'Usage: /template CVE-2024-3094\n\nGenerates a Nuclei YAML detection template for the CVE.');
+    return;
+  }
+
+  await sendMessage(chatId, `<b>Generating Nuclei template for ${cveId}...</b>`);
+
+  const { searchCVE } = await import('./intel.js');
+  const results = await searchCVE(cveId.toUpperCase());
+
+  if (results.length === 0) {
+    await sendMessage(chatId, `No CVE data found for <code>${cveId}</code>.`);
+    return;
+  }
+
+  const { generateNucleiTemplate } = await import('./exploit-analysis.js');
+  const template = await generateNucleiTemplate(results[0]);
+
+  let msg = `<b>Nuclei Template: ${cveId}</b>\n\n`;
+  msg += `<pre>${template.slice(0, 3500)}</pre>`;
 
   await sendMessage(chatId, msg);
 }

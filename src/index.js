@@ -17,7 +17,9 @@ import express from 'express';
 import cron from 'node-cron';
 import { sendMessage, handleCommand } from './telegram.js';
 import { pollCVEFeeds, getCVEStats, searchCVE, getRecentCritical, getBountyRelevantCVEs, getRecentExploits, getSecurityNews, getFeedStatus } from './intel.js';
+import { pollUndergroundFeeds, getUndergroundIntel, getNewPOCs, getExploitedInWild, getUndergroundFeedStatus } from './underground.js';
 import { runAnalysis, getLatestAnalysis, getAnalysisHistory } from './analysis.js';
+import { analyzeExploit } from './exploit-analysis.js';
 import { loadFindings, getFindings } from './findings.js';
 
 const app = express();
@@ -32,8 +34,8 @@ app.get('/', (req, res) => {
     status: 'ok',
     agent: 'uber-security-agent',
     model: 'claude-opus-4-6',
-    feeds: 7,
-    version: '1.0.0',
+    feeds: 15,
+    version: '2.0.0',
   });
 });
 
@@ -77,6 +79,9 @@ app.get('/intel/security', (req, res) => {
   const exploits = getRecentExploits();
   const news = getSecurityNews();
   const findings = getFindings();
+  const underground = getUndergroundIntel();
+  const pocs = getNewPOCs();
+  const wild = getExploitedInWild();
 
   res.json({
     stats,
@@ -86,7 +91,11 @@ app.get('/intel/security', (req, res) => {
     recentExploits: exploits.slice(0, 10),
     securityNews: news.slice(0, 10),
     findings: findings.slice(0, 10),
+    underground,
+    pocs: pocs.slice(0, 10),
+    exploitedInWild: wild.slice(0, 10),
     feeds: getFeedStatus(),
+    undergroundFeeds: getUndergroundFeedStatus(),
     lastPoll: stats.lastPoll,
   });
 });
@@ -124,9 +133,13 @@ app.get('/intel/analysis', (req, res) => {
 
 // Every 5 minutes: Poll ALL intelligence feeds — speed is money
 cron.schedule('*/5 * * * *', async () => {
-  console.log('[CRON] Polling 7 intelligence feeds...');
+  console.log('[CRON] Polling 15 intelligence feeds (7 core + 8 underground)...');
   try {
-    const results = await pollCVEFeeds();
+    // Poll core and underground feeds in parallel
+    const [results, ugResults] = await Promise.all([
+      pollCVEFeeds(),
+      pollUndergroundFeeds(),
+    ]);
 
     // Alert on new critical CVEs
     if (results.newCritical.length > 0 && CHAT_ID) {
@@ -144,7 +157,18 @@ cron.schedule('*/5 * * * *', async () => {
       }
     }
 
-    console.log(`[CRON] Feed poll complete: ${results.total} CVEs, ${results.newCritical.length} new critical, ${results.newExploits?.length || 0} new exploits`);
+    // Alert on new PoC exploit repos — URGENT: someone just published working exploit code
+    if (ugResults.newPocs?.length > 0 && CHAT_ID) {
+      for (const poc of ugResults.newPocs.slice(0, 5)) {
+        const msg = formatPoCAlert(poc);
+        await sendMessage(CHAT_ID, msg);
+      }
+    }
+
+    console.log(`[CRON] Feed poll complete: ${results.total} CVEs, ${results.newCritical.length} new critical, ${results.newExploits?.length || 0} new exploits, ${ugResults.total} underground items, ${ugResults.newPocs?.length || 0} new PoCs`);
+    if (ugResults.errors.length > 0) {
+      ugResults.errors.forEach(e => console.log(`  Underground feed error: ${e}`));
+    }
   } catch (err) {
     console.error('[CRON] Feed poll failed:', err.message);
     if (CHAT_ID) {
@@ -169,6 +193,25 @@ cron.schedule('*/15 * * * *', async () => {
         const bountyMsg = formatBountyAlert(analysis.bountyOpportunities);
         await sendMessage(CHAT_ID, bountyMsg);
       }
+    }
+
+    // Deep exploit analysis on top 3 most critical new CVEs
+    const critical = getRecentCritical();
+    const top3 = critical.slice(0, 3);
+    if (top3.length > 0 && CHAT_ID) {
+      console.log(`[CRON] Running deep exploit analysis on ${top3.length} critical CVEs...`);
+      for (const cve of top3) {
+        try {
+          const exploitAnalysis = await analyzeExploit(cve);
+          if (exploitAnalysis && !exploitAnalysis.error) {
+            const msg = formatExploitAnalysisAlert(exploitAnalysis);
+            await sendMessage(CHAT_ID, msg);
+          }
+        } catch (analysisErr) {
+          console.error(`[CRON] Exploit analysis failed for ${cve.id}:`, analysisErr.message);
+        }
+      }
+      console.log(`[CRON] Deep exploit analysis complete for ${top3.length} CVEs`);
     }
 
     console.log('[CRON] Opus 4.6 analysis complete');
@@ -324,6 +367,17 @@ function formatAnalysisDigest(analysis) {
   return msg;
 }
 
+function formatPoCAlert(poc) {
+  let msg = `🔥 <b>NEW PoC EXPLOIT PUBLISHED</b>\n\n`;
+  msg += `<b>${poc.title}</b>\n`;
+  if (poc.cveId) msg += `CVE: ${poc.cveId}\n`;
+  msg += `Source: ${poc.source}\n`;
+  if (poc.url) msg += `URL: ${poc.url}\n`;
+  msg += `\n${poc.description?.slice(0, 300) || 'Proof-of-concept exploit code published on GitHub'}\n`;
+  msg += `\n<i>Action: Verify exploit, check if targets are in bounty scope.</i>`;
+  return msg;
+}
+
 function formatBountyAlert(opportunities) {
   let msg = `<b>💰 BOUNTY OPPORTUNITIES</b>\n\n`;
 
@@ -333,6 +387,38 @@ function formatBountyAlert(opportunities) {
     msg += `Est. Bounty: ${opp.estimatedBounty}\n`;
     msg += `Difficulty: ${opp.difficulty}\n`;
     msg += `Strategy: ${opp.strategy}\n\n`;
+  }
+
+  return msg;
+}
+
+function formatExploitAnalysisAlert(analysis) {
+  const riskIcon = {
+    critical: '🔴', high: '🟠', medium: '🟡', low: '🟢', informational: 'ℹ️',
+  };
+  const icon = riskIcon[analysis.overallRisk] || '🔵';
+
+  let msg = `${icon} <b>DEEP ANALYSIS: ${analysis.cveId}</b>\n`;
+  msg += `<i>Risk: ${analysis.overallRisk?.toUpperCase() || 'UNKNOWN'}</i>\n\n`;
+  msg += `${analysis.tldr || ''}\n\n`;
+
+  if (analysis.exploitability) {
+    const e = analysis.exploitability;
+    msg += `<b>Exploit:</b> ${e.difficulty || '?'} difficulty, ${e.skillLevel || '?'} skill, ${e.timeToExploit || '?'} to exploit\n`;
+  }
+
+  if (analysis.impact) {
+    const i = analysis.impact;
+    msg += `<b>Impact:</b> ${i.blastRadius || '?'} blast radius, ${i.lateralMovement || '?'} lateral movement\n`;
+  }
+
+  if (analysis.fix) {
+    const f = analysis.fix;
+    msg += `<b>Fix:</b> ${f.priority || '?'} priority — ${f.primaryFix?.slice(0, 100) || 'N/A'}\n`;
+  }
+
+  if (analysis.bounty?.worthReporting) {
+    msg += `<b>Bounty:</b> ${analysis.bounty.estimatedBounty || 'TBD'} — ${analysis.bounty.duplicateRisk || '?'} dupe risk\n`;
   }
 
   return msg;
@@ -350,20 +436,29 @@ process.on('uncaughtException', (err) => {
 
 // ─── Startup ────────────────────────────────────────────
 const server = app.listen(PORT, async () => {
-  console.log(`\n🛡️  Uber Security Agent v1.0`);
+  console.log(`\n🛡️  Uber Security Agent v2.0`);
   console.log(`   Port: ${PORT}`);
   console.log(`   Model: Claude Opus 4.6`);
-  console.log(`   Feeds: 7 (NVD, CISA KEV, OSV, GitHub, ExploitDB, PacketStorm, THN)`);
+  console.log(`   Feeds: 15 (7 core + 8 underground)`);
+  console.log(`   Core: NVD, CISA KEV, OSV, GitHub, ExploitDB, PacketStorm, THN`);
+  console.log(`   Underground: Full Disclosure, oss-security, Vulners, GitHub PoCs, InTheWild, Nuclei, AttackerKB, MITRE ATT&CK`);
   console.log(`   CVE Poll: Every 5 minutes`);
   console.log(`   Deep Analysis: Every 15 minutes (Opus 4.6)`);
   console.log(`   Daily Briefing: 8:00 AM ET\n`);
 
-  // Initial feed poll
+  // Initial feed poll (core + underground in parallel)
   try {
-    const results = await pollCVEFeeds();
+    const [results, ugResults] = await Promise.all([
+      pollCVEFeeds(),
+      pollUndergroundFeeds(),
+    ]);
     console.log(`Initial poll: ${results.total} CVEs, ${results.newCritical.length} critical, ${results.errors.length} feed errors`);
+    console.log(`Underground: ${ugResults.total} items, ${ugResults.newPocs?.length || 0} PoCs, ${ugResults.errors.length} feed errors`);
     if (results.errors.length > 0) {
       results.errors.forEach(e => console.log(`  Feed error: ${e}`));
+    }
+    if (ugResults.errors.length > 0) {
+      ugResults.errors.forEach(e => console.log(`  Underground error: ${e}`));
     }
   } catch (err) {
     console.error('Initial poll failed:', err.message);
@@ -373,12 +468,13 @@ const server = app.listen(PORT, async () => {
   if (CHAT_ID) {
     try {
       const stats = getCVEStats();
-      let msg = `<b>🛡️ Uber Security Agent Online</b>\n\n`;
+      let msg = `<b>🛡️ Uber Security Agent v2.0 Online</b>\n\n`;
       msg += `<b>Model:</b> Claude Opus 4.6\n`;
-      msg += `<b>Feeds:</b> 7 active\n`;
+      msg += `<b>Core Feeds:</b> 7 active\n`;
+      msg += `<b>Underground Feeds:</b> 8 active\n`;
       msg += `<b>CVEs loaded:</b> ${stats.totalTracked}\n`;
       msg += `<b>Schedule:</b>\n`;
-      msg += `• Feed poll: every 5 min\n`;
+      msg += `• Feed poll: every 5 min (15 feeds)\n`;
       msg += `• Deep analysis: every 15 min\n`;
       msg += `• Daily briefing: 8:00 AM ET\n\n`;
       msg += `Type /help for commands.`;
