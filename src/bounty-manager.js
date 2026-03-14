@@ -23,6 +23,7 @@ let bountyStore = {
 // ─── Built-in Programs ────────────────────────────────────
 
 const BUILT_IN_PROGRAMS = [
+  // ─── Existing ─────────────────────────────────────────────
   {
     id: 'railway',
     name: 'Railway',
@@ -39,24 +40,439 @@ const BUILT_IN_PROGRAMS = [
       outOfScope: ['self-xss', 'rate-limiting', 'csv-injection', 'social-engineering', 'ddos'],
     },
     cweHighValue: [
-      'CWE-79',   // XSS
-      'CWE-89',   // SQL Injection
-      'CWE-918',  // SSRF
-      'CWE-287',  // Auth Bypass
-      'CWE-284',  // Improper Access Control
-      'CWE-502',  // Deserialization
-      'CWE-78',   // OS Command Injection
-      'CWE-22',   // Path Traversal
-      'CWE-862',  // Missing Authorization
-      'CWE-863',  // Incorrect Authorization
-      'CWE-94',   // Code Injection
-      'CWE-200',  // Information Exposure
+      'CWE-79', 'CWE-89', 'CWE-918', 'CWE-287', 'CWE-284',
+      'CWE-502', 'CWE-78', 'CWE-22', 'CWE-862', 'CWE-863',
+      'CWE-94', 'CWE-200',
     ],
     maxBounty: null,
     rewardsModel: 'cvss',
     safeHarbor: true,
     active: true,
     notes: 'CVSS 3.1 based rewards, paid within 30 days. Container escape / infra isolation bypass = highest value.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+
+  // ─── Tier 1 — Highest ROI ─────────────────────────────────
+
+  {
+    id: 'google-vrp',
+    name: 'Google VRP',
+    platform: 'independent',
+    url: 'https://bughunters.google.com/',
+    submitTo: 'https://bughunters.google.com/report',
+    techStack: [
+      'chrome', 'chromium', 'v8', 'skia', 'android', 'golang', 'grpc',
+      'protobuf', 'kubernetes', 'gcp', 'cloud', 'firebase', 'angular',
+      'tensorflow', 'webrtc', 'webassembly', 'wasm', 'pdfium', 'blink',
+    ],
+    scope: {
+      inScope: ['*.google.com', 'Chrome', 'Android', 'GCP', 'Chromium', 'Google Cloud'],
+      outOfScope: ['social-engineering', 'ddos', 'phishing', 'spam'],
+    },
+    cweHighValue: [
+      'CWE-416', // Use After Free (Chrome)
+      'CWE-787', // Out-of-bounds Write
+      'CWE-125', // Out-of-bounds Read
+      'CWE-94',  // Code Injection
+      'CWE-843', // Type Confusion
+      'CWE-79', 'CWE-352', 'CWE-918', 'CWE-287', 'CWE-862',
+    ],
+    maxBounty: 150000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: 'Chrome zero-days dropping weekly. V8/Skia variant hunting = top payouts. $500-$150K+.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'microsoft-msrc',
+    name: 'Microsoft MSRC',
+    platform: 'independent',
+    url: 'https://www.microsoft.com/en-us/msrc/bounty',
+    submitTo: 'https://msrc.microsoft.com/report/vulnerability',
+    techStack: [
+      'windows', 'azure', 'active directory', 'exchange', '.net', 'dotnet',
+      'asp.net', 'iis', 'sql server', 'office', 'outlook', 'sharepoint',
+      'teams', 'hyper-v', 'edge', 'defender', 'entra', 'powershell',
+      'ntlm', 'kerberos', 'ldap', 'smb', 'rdp', 'ad',
+    ],
+    scope: {
+      inScope: ['Windows', 'Azure', 'Microsoft 365', 'Edge', 'Active Directory', 'Exchange', 'Hyper-V'],
+      outOfScope: ['social-engineering', 'ddos', 'physical-access'],
+    },
+    cweHighValue: [
+      'CWE-269', // Privilege Escalation
+      'CWE-287', // Auth Bypass
+      'CWE-78',  // Command Injection
+      'CWE-94',  // Code Injection
+      'CWE-416', // Use After Free
+      'CWE-787', // OOB Write
+      'CWE-918', 'CWE-89', 'CWE-22', 'CWE-502',
+    ],
+    maxBounty: 100000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: '84 CVEs per Patch Tuesday. AD/Exchange/Hyper-V = highest tier. AD SPN vuln already in PoC tracker.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'immunefi-top20',
+    name: 'Immunefi Top 20',
+    platform: 'immunefi',
+    url: 'https://immunefi.com/explore/',
+    submitTo: 'https://immunefi.com/',
+    techStack: [
+      'solidity', 'ethereum', 'smart contract', 'defi', 'evm', 'web3',
+      'blockchain', 'bridge', 'lending', 'amm', 'oracle', 'token',
+      'uniswap', 'aave', 'compound', 'chainlink', 'layer2', 'rollup',
+      'rust', 'cosmwasm', 'solana', 'move', 'vyper',
+    ],
+    scope: {
+      inScope: ['Smart contracts', 'DeFi protocols', 'Bridges', 'Oracles', 'Layer 2'],
+      outOfScope: ['frontend-only', 'social-engineering', 'already-public'],
+    },
+    cweHighValue: [
+      'CWE-682', // Incorrect Calculation (reentrancy, rounding)
+      'CWE-863', // Incorrect Authorization
+      'CWE-362', // Race Condition
+      'CWE-190', // Integer Overflow
+      'CWE-284', // Improper Access Control
+      'CWE-94',  // Code Injection
+      'CWE-502', 'CWE-287',
+    ],
+    maxBounty: 500000,
+    rewardsModel: 'custom',
+    safeHarbor: true,
+    active: true,
+    notes: 'Crypto pays the most. $50K-$500K regularly. DeFi protocols always in scope. Weight these HEAVILY in scoring.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'hackerone-top50',
+    name: 'HackerOne Top 50',
+    platform: 'hackerone',
+    url: 'https://hackerone.com/directory/programs',
+    submitTo: 'https://hackerone.com/',
+    techStack: [
+      'ruby', 'rails', 'node', 'python', 'java', 'php', 'go', 'react',
+      'graphql', 'rest', 'api', 'aws', 'docker', 'kubernetes', 'nginx',
+      'postgresql', 'mysql', 'redis', 'elasticsearch', 'oauth', 'saml',
+      'jwt', 'webhook', 'mobile', 'ios', 'android',
+    ],
+    scope: {
+      inScope: ['Shopify', 'GitLab', 'Uber', 'Yahoo', 'Coinbase', 'AT&T', 'Dropbox', 'PayPal'],
+      outOfScope: ['self-xss', 'rate-limiting', 'social-engineering'],
+    },
+    cweHighValue: [
+      'CWE-79', 'CWE-89', 'CWE-918', 'CWE-287', 'CWE-862',
+      'CWE-863', 'CWE-502', 'CWE-78', 'CWE-22', 'CWE-352',
+      'CWE-434', 'CWE-601', 'CWE-94', 'CWE-200', 'CWE-269',
+    ],
+    maxBounty: 50000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: 'Broadest coverage. One CVE can match many H1 programs. $150-$50K+.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'bugcrowd-top30',
+    name: 'Bugcrowd Top 30',
+    platform: 'bugcrowd',
+    url: 'https://bugcrowd.com/programs',
+    submitTo: 'https://bugcrowd.com/',
+    techStack: [
+      'node', 'python', 'java', 'php', 'ruby', 'go', 'react', 'angular',
+      'vue', 'graphql', 'rest', 'api', 'aws', 'azure', 'docker',
+      'kubernetes', 'nginx', 'apache', 'postgresql', 'mysql', 'mongodb',
+      'oauth', 'saml', 'mobile', 'ios', 'android',
+    ],
+    scope: {
+      inScope: ['Tesla', 'MasterCard', 'Atlassian', 'Veeam', 'Twilio', 'DigitalOcean', 'Netgear'],
+      outOfScope: ['self-xss', 'rate-limiting', 'social-engineering'],
+    },
+    cweHighValue: [
+      'CWE-79', 'CWE-89', 'CWE-918', 'CWE-287', 'CWE-862',
+      'CWE-863', 'CWE-502', 'CWE-78', 'CWE-22', 'CWE-352',
+      'CWE-434', 'CWE-601', 'CWE-94', 'CWE-200',
+    ],
+    maxBounty: 40000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: 'Veeam CVSS 9.9 RCE just dropped. Tesla, MasterCard, Atlassian. $150-$40K+.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+
+  // ─── Tier 2 — Strong Match to Current Intel ───────────────
+
+  {
+    id: 'apple-security',
+    name: 'Apple Security Bounty',
+    platform: 'independent',
+    url: 'https://security.apple.com/bounty/',
+    submitTo: 'https://security.apple.com/bounty/',
+    techStack: [
+      'ios', 'macos', 'safari', 'webkit', 'xnu', 'iphone', 'ipad',
+      'apple', 'swift', 'objective-c', 'icloud', 'siri', 'airdrop',
+      'bluetooth', 'usb', 'kernel', 'sandbox', 'codesign', 'lockdown',
+    ],
+    scope: {
+      inScope: ['iOS', 'macOS', 'Safari', 'iCloud', 'Apple hardware', 'Lockdown Mode'],
+      outOfScope: ['social-engineering', 'ddos', 'physical-access-only'],
+    },
+    cweHighValue: [
+      'CWE-416', 'CWE-787', 'CWE-125', 'CWE-843', 'CWE-269',
+      'CWE-94', 'CWE-287', 'CWE-200', 'CWE-284',
+    ],
+    maxBounty: 1000000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: 'Two iPhone zero-days just patched. iOS/macOS variant hunting. $5K-$1M. Lockdown Mode bypass = max.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'alibaba',
+    name: 'Alibaba / Ant Group',
+    platform: 'independent',
+    url: 'https://security.alibaba.com/',
+    submitTo: 'https://security.alibaba.com/',
+    techStack: [
+      'java', 'spring', 'android', 'ios', 'react', 'node', 'mysql',
+      'postgresql', 'redis', 'nginx', 'api', 'rest', 'graphql', 'oauth',
+      'alipay', 'deeplink', 'jsbridge', 'mobile', 'cloud', 'oss',
+    ],
+    scope: {
+      inScope: ['Alibaba Cloud', 'Alipay', 'Taobao', 'Ant Group', 'DingTalk'],
+      outOfScope: ['social-engineering', 'ddos', 'self-xss'],
+    },
+    cweHighValue: [
+      'CWE-79', 'CWE-89', 'CWE-918', 'CWE-287', 'CWE-862',
+      'CWE-78', 'CWE-22', 'CWE-502', 'CWE-94', 'CWE-601',
+    ],
+    maxBounty: 50000,
+    rewardsModel: 'custom',
+    safeHarbor: true,
+    active: true,
+    notes: 'Alipay DeepLink+JSBridge CVSS 9.3, 17 vulns, 6 CVEs already in feed. Direct bounty target. $500-$50K+.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'veeam',
+    name: 'Veeam',
+    platform: 'bugcrowd',
+    url: 'https://bugcrowd.com/veeam',
+    submitTo: 'https://bugcrowd.com/veeam',
+    techStack: [
+      'windows', '.net', 'dotnet', 'sql server', 'powershell', 'rest',
+      'api', 'backup', 'vmware', 'hyper-v', 'aws', 'azure', 'agent',
+      'linux', 'ssh', 'smb', 'nfs', 'iscsi',
+    ],
+    scope: {
+      inScope: ['Veeam Backup & Replication', 'Veeam ONE', 'Veeam Agent', 'Service Provider Console'],
+      outOfScope: ['social-engineering', 'ddos', 'physical-access'],
+    },
+    cweHighValue: [
+      'CWE-502', // Deserialization (their #1 issue)
+      'CWE-78', 'CWE-89', 'CWE-287', 'CWE-269', 'CWE-22',
+      'CWE-918', 'CWE-94', 'CWE-284',
+    ],
+    maxBounty: 25000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: 'CVE-2026-21666 CVSS 9.9 RCE just dropped. 7 critical RCEs. HOT target right now. $500-$25K+.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'fortinet',
+    name: 'Fortinet PSIRT',
+    platform: 'independent',
+    url: 'https://www.fortiguard.com/psirt-policy',
+    submitTo: 'psirt@fortinet.com',
+    techStack: [
+      'fortios', 'fortigate', 'fortiweb', 'fortianalyzer', 'fortimanager',
+      'forticlient', 'ssl vpn', 'vpn', 'firewall', 'waf', 'proxy',
+      'nginx', 'apache', 'linux', 'api', 'rest', 'ssh', 'snmp',
+    ],
+    scope: {
+      inScope: ['FortiOS', 'FortiWeb', 'FortiGate', 'FortiAnalyzer', 'FortiManager', 'FortiClient'],
+      outOfScope: ['social-engineering', 'ddos'],
+    },
+    cweHighValue: [
+      'CWE-78', 'CWE-89', 'CWE-22', 'CWE-287', 'CWE-918',
+      'CWE-269', 'CWE-79', 'CWE-502', 'CWE-306', 'CWE-863',
+    ],
+    maxBounty: 20000,
+    rewardsModel: 'custom',
+    safeHarbor: true,
+    active: true,
+    notes: 'FortiWeb actively exploited (CVE-2025-64446). They pay for variants. $500-$20K+.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'cisco',
+    name: 'Cisco PSIRT',
+    platform: 'independent',
+    url: 'https://tools.cisco.com/security/center/resources/security_vulnerability_policy.html',
+    submitTo: 'psirt@cisco.com',
+    techStack: [
+      'ios-xe', 'nxos', 'asa', 'firepower', 'webex', 'meraki', 'catalyst',
+      'anyconnect', 'vpn', 'snmp', 'ssh', 'bgp', 'ospf', 'ldap',
+      'radius', 'tacacs', 'rest', 'api', 'netconf', 'yang',
+    ],
+    scope: {
+      inScope: ['IOS-XE', 'NX-OS', 'ASA', 'Firepower', 'Webex', 'Meraki', 'Catalyst'],
+      outOfScope: ['social-engineering', 'ddos', 'eol-products'],
+    },
+    cweHighValue: [
+      'CWE-78', 'CWE-287', 'CWE-269', 'CWE-22', 'CWE-120',
+      'CWE-416', 'CWE-787', 'CWE-89', 'CWE-918', 'CWE-306',
+    ],
+    maxBounty: 25000,
+    rewardsModel: 'custom',
+    safeHarbor: true,
+    active: true,
+    notes: 'Emergency zero-day patched today. Massive deployed base. $500-$25K+.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+
+  // ─── Tier 3 — Coverage ────────────────────────────────────
+
+  {
+    id: 'gitlab',
+    name: 'GitLab',
+    platform: 'hackerone',
+    url: 'https://hackerone.com/gitlab',
+    submitTo: 'https://hackerone.com/gitlab',
+    techStack: [
+      'ruby', 'rails', 'go', 'vue', 'graphql', 'rest', 'api', 'git',
+      'docker', 'kubernetes', 'nginx', 'postgresql', 'redis', 'sidekiq',
+      'elasticsearch', 'prometheus', 'oauth', 'saml', 'ci', 'cd', 'runner',
+    ],
+    scope: {
+      inScope: ['gitlab.com', 'GitLab CE/EE', 'GitLab Runner', 'GitLab Pages', 'Container Registry'],
+      outOfScope: ['self-xss', 'rate-limiting', 'social-engineering'],
+    },
+    cweHighValue: [
+      'CWE-79', 'CWE-89', 'CWE-918', 'CWE-287', 'CWE-862',
+      'CWE-863', 'CWE-22', 'CWE-78', 'CWE-502', 'CWE-94',
+    ],
+    maxBounty: 35000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: 'Open source, huge scope, pays well. CI/CD pipeline exploits = high value.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'shopify',
+    name: 'Shopify',
+    platform: 'hackerone',
+    url: 'https://hackerone.com/shopify',
+    submitTo: 'https://hackerone.com/shopify',
+    techStack: [
+      'ruby', 'rails', 'react', 'graphql', 'rest', 'api', 'liquid',
+      'node', 'mysql', 'redis', 'nginx', 'docker', 'kubernetes',
+      'oauth', 'jwt', 'webhook', 'payment', 'checkout', 'storefront',
+    ],
+    scope: {
+      inScope: ['*.shopify.com', '*.myshopify.com', 'Shopify API', 'Shopify Payments', 'Shop app'],
+      outOfScope: ['self-xss', 'rate-limiting', 'social-engineering', 'clickjacking'],
+    },
+    cweHighValue: [
+      'CWE-79', 'CWE-89', 'CWE-918', 'CWE-287', 'CWE-862',
+      'CWE-863', 'CWE-352', 'CWE-502', 'CWE-94', 'CWE-601',
+    ],
+    maxBounty: 50000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: 'Consistent payouts, broad web scope. Payment/checkout vulns = highest tier.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'wordpress',
+    name: 'WordPress (Automattic)',
+    platform: 'hackerone',
+    url: 'https://hackerone.com/automattic',
+    submitTo: 'https://hackerone.com/automattic',
+    techStack: [
+      'php', 'wordpress', 'mysql', 'nginx', 'apache', 'rest', 'api',
+      'plugin', 'theme', 'woocommerce', 'jetpack', 'wpcom', 'calypso',
+      'react', 'node', 'elasticsearch', 'memcached', 'varnish',
+    ],
+    scope: {
+      inScope: ['WordPress.com', 'WooCommerce', 'Jetpack', 'Tumblr', 'WordPress core'],
+      outOfScope: ['self-xss', 'rate-limiting', 'wordpress.org plugins (third-party)'],
+    },
+    cweHighValue: [
+      'CWE-79', 'CWE-89', 'CWE-918', 'CWE-22', 'CWE-434',
+      'CWE-502', 'CWE-94', 'CWE-287', 'CWE-862', 'CWE-78',
+    ],
+    maxBounty: 25000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: 'WP Backup Migration RCE already in Exploit-DB feed. Massive attack surface via plugins.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'docker',
+    name: 'Docker',
+    platform: 'hackerone',
+    url: 'https://hackerone.com/docker',
+    submitTo: 'https://hackerone.com/docker',
+    techStack: [
+      'docker', 'container', 'containerd', 'runc', 'buildkit', 'compose',
+      'swarm', 'registry', 'oci', 'linux', 'cgroup', 'namespace',
+      'apparmor', 'seccomp', 'overlay', 'go', 'api', 'rest',
+    ],
+    scope: {
+      inScope: ['Docker Engine', 'Docker Desktop', 'Docker Hub', 'containerd', 'BuildKit'],
+      outOfScope: ['social-engineering', 'ddos', 'third-party-images'],
+    },
+    cweHighValue: [
+      'CWE-269', // Container escape / privilege escalation
+      'CWE-284', // Access control bypass
+      'CWE-22',  // Path traversal (escape)
+      'CWE-78', 'CWE-94', 'CWE-416', 'CWE-787', 'CWE-862',
+    ],
+    maxBounty: 20000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: 'CrackArmor AppArmor container escape = direct match. Container escape = top payout.',
+    addedAt: '2026-03-14T00:00:00Z',
+  },
+  {
+    id: 'redis',
+    name: 'Redis',
+    platform: 'hackerone',
+    url: 'https://hackerone.com/redis',
+    submitTo: 'https://hackerone.com/redis',
+    techStack: [
+      'redis', 'c', 'lua', 'module', 'cluster', 'sentinel', 'stream',
+      'pubsub', 'acl', 'tls', 'ssl', 'replication', 'rdb', 'aof',
+      'linux', 'tcp', 'api',
+    ],
+    scope: {
+      inScope: ['Redis OSS', 'Redis Stack', 'Redis Modules', 'Redis Sentinel', 'Redis Cluster'],
+      outOfScope: ['social-engineering', 'ddos', 'redis-cloud-only'],
+    },
+    cweHighValue: [
+      'CWE-787', // OOB Write
+      'CWE-125', // OOB Read
+      'CWE-416', // Use After Free
+      'CWE-78', 'CWE-94', 'CWE-287', 'CWE-120', 'CWE-190',
+    ],
+    maxBounty: 10000,
+    rewardsModel: 'fixed-tier',
+    safeHarbor: true,
+    active: true,
+    notes: 'Redis 8.0.2 RCE already in Exploit-DB feed. Memory corruption / Lua sandbox escape = high value.',
     addedAt: '2026-03-14T00:00:00Z',
   },
 ];
