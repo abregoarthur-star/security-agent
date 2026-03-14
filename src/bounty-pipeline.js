@@ -28,6 +28,10 @@ export async function runBountyPipeline(env, match, program) {
 
   const researchPackage = await buildResearchPackage(env, match, program);
   const draftReport = await draftBountyReport(env, match, program, researchPackage);
+
+  // Push to Brain for review/edit/approve
+  await pushReportToBrain(env, match, program, researchPackage, draftReport);
+
   const telegramMessage = formatBountyPackage(match, program, researchPackage, draftReport);
 
   console.log(`[PIPELINE] Pipeline complete for ${match.cveId} x ${program.name}`);
@@ -374,7 +378,7 @@ async function checkHttpHeaders(url) {
       method: 'HEAD',
       redirect: 'follow',
       signal: AbortSignal.timeout(8000),
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SecurityResearch/1.0)' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SecurityAgent/2.1)' },
     });
     const server = res.headers.get('server');
     const poweredBy = res.headers.get('x-powered-by');
@@ -677,6 +681,83 @@ function fallbackReport(match, program, researchPackage) {
     duplicateRationale: 'Unable to assess without AI analysis.',
     generatedAt: new Date().toISOString(),
   };
+}
+
+// ─── Brain Integration ───────────────────────────────────
+
+/**
+ * Push a bounty report to the Brain for review/edit/approve.
+ * Fire-and-forget — Brain failures don't block the pipeline.
+ */
+async function pushReportToBrain(env, match, program, researchPackage, draftReport) {
+  const brainUrl = process.env.BRAIN_API_URL;
+  const brainKey = process.env.BRAIN_API_KEY;
+  if (!brainUrl || !brainKey) {
+    console.log('[PIPELINE] No Brain URL/key — skipping report push');
+    return null;
+  }
+
+  const report = {
+    id: `br_${Date.now()}`,
+    cveId: match.cveId,
+    programId: program.id,
+    programName: program.name,
+    platform: program.platform,
+    submitTo: program.submitTo || program.url,
+    score: match.score,
+    severity: draftReport.severity,
+    cvssScore: draftReport.cvssScore,
+    cvssVector: draftReport.cvssVector,
+    title: draftReport.title,
+    summary: draftReport.summary,
+    description: draftReport.description,
+    reproductionSteps: draftReport.reproductionSteps,
+    impact: draftReport.impact,
+    remediation: draftReport.remediation,
+    references: draftReport.references,
+    emailBody: draftReport.emailBody,
+    hackeroneMarkdown: draftReport.hackeroneMarkdown,
+    estimatedBounty: draftReport.estimatedBounty,
+    duplicateRisk: draftReport.duplicateRisk,
+    duplicateRationale: draftReport.duplicateRationale,
+    format: draftReport.format,
+    // Research context
+    researchSummary: {
+      pocsFound: researchPackage.pocs.length,
+      pocSources: researchPackage.pocs.map(p => p.source),
+      confirmedTech: researchPackage.targetRecon.confirmedTech,
+      exploitabilityScore: researchPackage.exploitability.score,
+      exploitabilityConfidence: researchPackage.exploitability.confidence,
+      targetLikelyVulnerable: researchPackage.exploitability.targetLikelyVulnerable,
+    },
+    status: 'pending',  // pending | editing | submitted | acknowledged | accepted | paid | rejected
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    submittedAt: null,
+  };
+
+  try {
+    const res = await fetch(`${brainUrl}/bounty/reports`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': brainKey,
+      },
+      body: JSON.stringify(report),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!res.ok) {
+      console.error(`[PIPELINE] Brain push failed: ${res.status}`);
+      return null;
+    }
+
+    console.log(`[PIPELINE] Report pushed to Brain: ${report.id}`);
+    return report;
+  } catch (err) {
+    console.error(`[PIPELINE] Brain push error:`, err.message);
+    return null;
+  }
 }
 
 // ─── Telegram Formatting ─────────────────────────────────
