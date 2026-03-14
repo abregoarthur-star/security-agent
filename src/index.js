@@ -511,13 +511,19 @@ function formatExploitAnalysisAlert(analysis) {
   return msg;
 }
 
+// Escape HTML entities in dynamic text to prevent Telegram parse errors
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function formatBountyMatch(match) {
   const scoreIcon = match.score >= 80 ? '🔴' : match.score >= 60 ? '🟠' : '🟡';
   let msg = `${scoreIcon} <b>BOUNTY MATCH: ${match.cveId}</b>\n`;
   msg += `<b>Program:</b> ${match.programName}\n`;
   msg += `<b>Score:</b> ${match.score}/100\n`;
   if (match.cve?.cvss) msg += `<b>CVSS:</b> ${match.cve.cvss}\n`;
-  msg += `\n${match.cve?.description || 'No description'}\n`;
+  msg += `\n${esc(match.cve?.description) || 'No description'}\n`;
 
   if (match.techOverlap?.length > 0) {
     msg += `\n<b>Tech Overlap:</b> ${match.techOverlap.join(', ')}\n`;
@@ -536,17 +542,17 @@ function formatBountyMatch(match) {
 }
 
 function formatMatchAnalysis(match, analysis) {
-  let msg = `<b>🧠 BOUNTY ANALYSIS: ${match.cveId} → ${match.programName}</b>\n\n`;
-  msg += `<b>Verdict:</b> ${analysis.verdict?.toUpperCase() || 'UNKNOWN'}\n`;
-  if (analysis.estimatedBounty) msg += `<b>Est. Bounty:</b> ${analysis.estimatedBounty}\n`;
-  if (analysis.duplicateRisk) msg += `<b>Dupe Risk:</b> ${analysis.duplicateRisk}\n`;
-  if (analysis.timeToTest) msg += `<b>Time to Test:</b> ${analysis.timeToTest}\n`;
-  msg += `\n<b>Strategy:</b> ${analysis.attackStrategy || 'N/A'}\n`;
-  if (analysis.chainPotential) msg += `\n<b>Chain:</b> ${analysis.chainPotential}\n`;
+  let msg = `<b>🧠 BOUNTY ANALYSIS: ${match.cveId} → ${esc(match.programName)}</b>\n\n`;
+  msg += `<b>Verdict:</b> ${esc(analysis.verdict?.toUpperCase()) || 'UNKNOWN'}\n`;
+  if (analysis.estimatedBounty) msg += `<b>Est. Bounty:</b> ${esc(analysis.estimatedBounty)}\n`;
+  if (analysis.duplicateRisk) msg += `<b>Dupe Risk:</b> ${esc(analysis.duplicateRisk)}\n`;
+  if (analysis.timeToTest) msg += `<b>Time to Test:</b> ${esc(analysis.timeToTest)}\n`;
+  msg += `\n<b>Strategy:</b> ${esc(analysis.attackStrategy) || 'N/A'}\n`;
+  if (analysis.chainPotential) msg += `\n<b>Chain:</b> ${esc(analysis.chainPotential)}\n`;
 
   if (analysis.reportOutline?.length > 0) {
     msg += `\n<b>Report Outline:</b>\n`;
-    analysis.reportOutline.forEach((s, i) => { msg += `${i + 1}. ${s}\n`; });
+    analysis.reportOutline.forEach((s, i) => { msg += `${i + 1}. ${esc(s)}\n`; });
   }
 
   return msg;
