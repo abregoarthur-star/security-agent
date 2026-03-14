@@ -73,6 +73,7 @@ export async function handleCommand(message) {
       case '/matches': await handleMatches(chatId, args); break;
       case '/submit': await handleSubmit(chatId, args); break;
       case '/payouts': await handlePayouts(chatId); break;
+      case '/pipeline': await handlePipeline(chatId, args); break;
       case '/chatid': await sendMessage(chatId, `Your chat ID: <code>${chatId}</code>`); break;
       case '/help': await sendMessage(chatId, getHelpMessage()); break;
       default:
@@ -147,6 +148,7 @@ function getHelpMessage() {
 /matches [program] — Top CVE matches scored by priority
 /submit [CVE] [program] — Mark a CVE as submitted to a program
 /payouts — Payout analytics (earned, pending, win rate)
+/pipeline [CVE] [program] — Run full bounty pipeline (research + report)
 
 <b>Scanning:</b>
 /scan [domain] — Full security scan
@@ -999,6 +1001,86 @@ async function handlePayouts(chatId) {
   }
 
   await sendMessage(chatId, msg);
+}
+
+async function handlePipeline(chatId, args) {
+  if (!args) {
+    const { getTopMatches } = await import('./bounty-manager.js');
+    const matches = getTopMatches(5);
+    let usage = 'Usage: /pipeline CVE-2026-XXXX program_id\n\n';
+    usage += 'Runs the full bounty pipeline: research package + Opus 4.6 report draft.\n\n';
+    if (matches.length > 0) {
+      usage += '<b>Recent matches to try:</b>\n';
+      for (const m of matches) {
+        usage += `• <code>/pipeline ${m.cveId} ${m.programId}</code> (score ${m.score})\n`;
+      }
+    }
+    await sendMessage(chatId, usage);
+    return;
+  }
+
+  const parts = args.split(/\s+/);
+  if (parts.length < 2) {
+    await sendMessage(chatId, 'Usage: /pipeline CVE-2026-XXXX program_id');
+    return;
+  }
+
+  const cveId = parts[0].toUpperCase();
+  const programId = parts[1].toLowerCase();
+
+  const { getProgram, getMatchesForProgram } = await import('./bounty-manager.js');
+  const program = getProgram(programId);
+  if (!program) {
+    await sendMessage(chatId, `Program <code>${programId}</code> not found. Use /programs to list all.`);
+    return;
+  }
+
+  await sendMessage(chatId, `<b>🔄 Running bounty pipeline for ${cveId} x ${program.name}...</b>\n<i>Building research package + drafting report with Opus 4.6...</i>`);
+
+  // Build a match object — check if one exists or create a minimal one
+  let match = getMatchesForProgram(programId, 200).find(m => m.cveId === cveId);
+  if (!match) {
+    // No existing match — create a minimal one from CVE lookup
+    const { searchCVE } = await import('./intel.js');
+    const results = await searchCVE(cveId);
+    const cve = results[0] || { id: cveId, cvss: null, severity: 'Unknown', description: '' };
+
+    match = {
+      id: `m_manual_${Date.now()}`,
+      cveId,
+      programId,
+      programName: program.name,
+      score: 0,
+      cve: {
+        cvss: cve.cvss,
+        severity: cve.severity,
+        description: cve.description?.slice(0, 300),
+        weaknesses: cve.weaknesses || [],
+        exploitAvailable: cve.exploitAvailable || false,
+        cisaKEV: cve.cisaKEV || false,
+      },
+      techOverlap: [],
+      cweMatch: [],
+    };
+  }
+
+  try {
+    const { runBountyPipeline } = await import('./bounty-pipeline.js');
+    const pipeline = await runBountyPipeline(process.env, match, program);
+
+    if (pipeline.telegramMessage) {
+      const messages = Array.isArray(pipeline.telegramMessage)
+        ? pipeline.telegramMessage
+        : [pipeline.telegramMessage];
+      for (const msg of messages) {
+        await sendMessage(chatId, msg);
+      }
+    } else {
+      await sendMessage(chatId, '<b>Pipeline completed but produced no output.</b>');
+    }
+  } catch (err) {
+    await sendMessage(chatId, `<b>Pipeline failed:</b> ${err.message}`);
+  }
 }
 
 function formatUptime(seconds) {

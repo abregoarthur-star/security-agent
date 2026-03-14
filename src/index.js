@@ -26,6 +26,7 @@ import {
   getMatchesForProgram, getSubmissions, getPayoutStats, matchCVEsToPrograms,
   analyzeMatch, getBountyStore,
 } from './bounty-manager.js';
+import { runBountyPipeline } from './bounty-pipeline.js';
 
 const app = express();
 app.use(express.json());
@@ -248,6 +249,24 @@ cron.schedule('*/5 * * * *', async () => {
               }
             } catch (analysisErr) {
               console.error(`[BOUNTY] Analysis failed for ${match.cveId}:`, analysisErr.message);
+            }
+
+            // Full bounty pipeline — research package + report draft
+            try {
+              const program = getProgram(match.programId);
+              if (program) {
+                const pipeline = await runBountyPipeline(process.env, match, program);
+                if (pipeline.telegramMessage) {
+                  const messages = Array.isArray(pipeline.telegramMessage)
+                    ? pipeline.telegramMessage
+                    : [pipeline.telegramMessage];
+                  for (const msg of messages) {
+                    await sendMessage(CHAT_ID, msg);
+                  }
+                }
+              }
+            } catch (pipelineErr) {
+              console.error(`[BOUNTY] Pipeline failed for ${match.cveId}:`, pipelineErr.message);
             }
           }
         }
