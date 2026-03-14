@@ -121,10 +121,10 @@ async function pollFullDisclosure() {
 // ─── 2. oss-security Mailing List ───────────────────────
 
 async function pollOSSSecurity() {
-  // Try multiple possible RSS endpoints
+  // Openwall removed their RSS feeds. Use seclists.org mirror instead.
   const urls = [
+    'https://seclists.org/rss/oss-sec.rss',
     'https://www.openwall.com/lists/oss-security/rss.xml',
-    'https://www.openwall.com/lists/oss-security/rss',
   ];
 
   let xml = null;
