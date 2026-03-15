@@ -1,99 +1,192 @@
-# Uber Security Agent
+# Security Agent v2.1
 
 ## Overview
-Autonomous AI security intelligence agent powered by Claude Opus 4.6. Continuously monitors 7 vulnerability databases and exploit feeds, analyzes the threat landscape, identifies bug bounty opportunities, and delivers actionable security alerts via Telegram.
+Autonomous AI security intelligence agent powered by Claude Opus 4.6. Monitors 15 vulnerability databases and exploit feeds, scores CVEs against 16 bug bounty programs, generates ready-to-submit bounty reports, and delivers actionable alerts via Telegram.
 
-**Bot:** @UberSecurityBot on Telegram (pending BotFather setup)
-**Hosting:** Railway (same Hobby plan as the Brain)
-**Model:** Claude Opus 4.6 (best available — this is for making money)
-**Feeds:** 7 intelligence sources, all free
+**Bot:** @UberSecurityBot on Telegram
+**Hosting:** Railway (Hobby plan)
+**Model:** Claude Opus 4.6 (analysis + report drafting)
+**Feeds:** 15 intelligence sources, all free
+**Programs:** 16 bounty programs (Railway, Google, Microsoft, Apple, Immunefi, etc.)
 
 ## Revenue Model
-1. **Bug Bounties** — First-to-find advantage via fast CVE → exploit correlation + Nuclei template generation
+1. **Bug Bounties** — Automated CVE-to-program matching + priority scoring + report drafting. First to find = first to report = first to get paid.
 2. **SMB Monitoring** — Curated vulnerability alerts for business customers ($49-$349/mo)
 3. **Intelligence Feeds** — Premium threat intelligence delivery ($29-$199/mo)
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│              INTELLIGENCE FEEDS (7, all free)                │
-│                                                              │
-│  NVD ─────────── 337K+ CVEs, CVSS scores, CWE, CPE         │
-│  CISA KEV ────── Actively exploited in the wild              │
-│  OSV.dev ─────── npm, PyPI, Go, Rust, Maven, NuGet, Ruby    │
-│  GitHub ─────── Security advisories (reviewed, with CVSS)    │
-│  Exploit-DB ──── New exploits as they drop (RSS)             │
-│  PacketStorm ─── Exploit + advisory feed (RSS)               │
-│  The Hacker News  Security news for context (RSS)            │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────┐
-│              SECURITY AGENT (Railway)                        │
-│                                                              │
-│  index.js ──── Express server + 3 cron jobs                  │
-│  intel.js ──── 7-feed polling engine + CVE store + scoring   │
-│  analysis.js ── Opus 4.6 threat analysis + bounty strategy   │
-│  findings.js ── Finding store                                │
-│  telegram.js ── 13 commands + alert formatting               │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                      Telegram ──> Arthur's phone
+┌──────────────────────────────────────────────────────────────────┐
+│              INTELLIGENCE FEEDS (15, all free)                    │
+│                                                                   │
+│  NVD ──────────── 337K+ CVEs, CVSS scores, CWE, CPE             │
+│  CISA KEV ─────── Actively exploited in the wild                  │
+│  OSV.dev ──────── npm, PyPI, Go, Rust, Maven, NuGet, Ruby        │
+│  GitHub ────────── Security advisories (reviewed, with CVSS)      │
+│  Exploit-DB ───── New exploits as they drop (RSS)                 │
+│  Sploitus ─────── Exploit aggregator (replaced PacketStorm)       │
+│  The Hacker News  Security news for context (RSS)                 │
+│  Nuclei Templates Latest detection templates (GitHub API)         │
+│  InTheWild ────── Exploited-in-the-wild tracker (API)             │
+│  VulDB ─────────── Recent vulnerability database (RSS)            │
+│  oss-security ──── Full disclosure mailing list (seclists.org)    │
+│  FullDisclosure ── Vulnerability disclosures (seclists.org)       │
+│  Bugtraq ──────── Classic vuln mailing list (seclists.org)        │
+│  OpenCVE ──────── CVE change notifications (RSS)                  │
+│  CERT/CC ──────── US-CERT vulnerability notes (RSS)               │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │
+┌────────────────────────────▼─────────────────────────────────────┐
+│              SECURITY AGENT v2.1 (Railway)                        │
+│                                                                   │
+│  index.js ──────── Express server + 3 crons + API routes          │
+│  intel.js ──────── 15-feed polling engine + CVE store + scoring   │
+│  bounty-manager.js  16 programs, matching engine, submissions     │
+│  bounty-pipeline.js PoC research + report drafting + Brain push   │
+│  analysis.js ───── Opus 4.6 threat analysis + bounty strategy     │
+│  underground.js ── Alt feeds (InTheWild, VulDB, oss-sec, etc.)    │
+│  findings.js ───── Finding store (in-memory)                      │
+│  telegram.js ───── 18 commands + alert formatting                 │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              ▼              ▼              ▼
+         Telegram       Brain API      Submissions
+         Alerts        /intel/*        Tracker
 ```
 
 ## Cron Schedule
 
 | Pattern | Frequency | Purpose |
 |---------|-----------|---------|
-| `*/5 * * * *` | Every 5 min | Poll ALL 7 feeds — speed is money in bug bounties |
+| `*/5 * * * *` | Every 5 min | Poll ALL 15 feeds + run bounty matching against 16 programs. Alert on new high-score matches. |
 | `*/15 * * * *` | Every 15 min | Opus 4.6 deep analysis — bounty opportunities, exploit watch, threat trends |
 | `0 13 * * *` | 8:00 AM ET | Full daily security briefing with all metrics |
 
-## Intelligence Feeds
+### 5-Minute Cron Flow
+```
+Poll CVE feeds (intel.js) ──► 15 feeds, deduplicated
+         │
+         ▼
+Poll underground feeds (underground.js) ──► InTheWild, VulDB, oss-sec, etc.
+         │
+         ▼
+Match CVEs to programs (bounty-manager.js)
+         │
+         ├── For each CVE × each active program:
+         │     Tech stack match (30) + CWE match (20) + CVSS (15)
+         │     + Exploit availability (15) + Freshness (10) + Competition (10)
+         │
+         ├── Score >= 70 → Opus deep analysis + bounty pipeline
+         ├── Top 3 new matches → Telegram alerts
+         │
+         ▼
+Cache results in memory
+```
 
-| Feed | Data | Cost | Why |
-|------|------|------|-----|
-| **NVD** | 337K+ CVEs, CVSS, CWE, CPE | Free | Core vulnerability database |
-| **CISA KEV** | Actively exploited vulns | Free | Highest-priority threats |
-| **OSV.dev** | Package vulns (8 ecosystems) | Free | Supply chain attacks |
-| **GitHub Advisories** | Reviewed advisories + CVSS | Free | OSS vuln coverage |
-| **Exploit-DB** | New exploits RSS | Free | Weaponization tracking |
-| **Packet Storm** | Exploit + advisory RSS | Free | Additional exploit coverage |
-| **The Hacker News** | Security news | Free | Threat context |
+## Intelligence Feeds (15)
 
-## Opus 4.6 Analysis (Every 15 min)
+| Feed | Data | Source | Notes |
+|------|------|--------|-------|
+| **NVD** | CVEs, CVSS, CWE, CPE | `services.nvd.nist.gov` | 24h lookback on first poll, 2h after |
+| **CISA KEV** | Actively exploited vulns | `cisa.gov` | Highest priority |
+| **OSV.dev** | Package vulns (8 ecosystems) | `osv.dev` | Supply chain |
+| **GitHub Advisories** | Reviewed advisories + CVSS | `api.github.com` | Requires GITHUB_TOKEN |
+| **Exploit-DB** | New exploits | `exploit-db.com/rss.xml` | Weaponization tracking |
+| **Sploitus** | Exploit aggregator | `sploitus.com/rss` | Replaced PacketStorm |
+| **The Hacker News** | Security news | `feeds.feedburner.com` | Threat context |
+| **Nuclei Templates** | Detection templates | `api.github.com` | Requires GITHUB_TOKEN |
+| **InTheWild** | Exploited-in-the-wild | `inthewild.io/api` | Confirmed exploitation |
+| **VulDB** | Recent vulns | `vuldb.com` | RSS feed |
+| **oss-security** | Full disclosure | `seclists.org/rss/oss-sec.rss` | Mailing list mirror |
+| **FullDisclosure** | Vuln disclosures | `seclists.org` | Mailing list |
+| **Bugtraq** | Classic vuln list | `seclists.org` | Mailing list |
+| **OpenCVE** | CVE change notifications | `opencve.io` | RSS |
+| **CERT/CC** | US-CERT notes | `kb.cert.org` | RSS |
 
-Claude Opus 4.6 analyzes the full CVE + exploit landscape and produces:
+## Bounty Program Manager
 
-1. **Bounty Opportunities** — CVE ID, target, estimated bounty, difficulty, exploitation strategy
-2. **Nuclei Template Priority** — Which CVEs to write templates for first (first-to-scan advantage)
-3. **SMB Alerts** — What business customers need to patch NOW
-4. **Exploit Watch** — Newly weaponized vulnerabilities
-5. **Attack Trends** — What attack vectors are trending
-6. **Market Intel** — How the threat landscape affects cybersecurity stocks
+### 16 Built-in Programs (3 Tiers)
 
-### Bounty Relevance Scoring
-Every CVE is scored for bounty relevance based on:
-- CWE type (XSS, SQLi, SSRF, auth bypass, RCE = high value)
-- Web-facing keywords (API, REST, GraphQL, plugin, portal, admin)
-- Attack vector (NETWORK = remotely exploitable = bounty target)
-- Exploit availability (exploit exists = confirmed vulnerable)
+**Tier 1 — High Payout:**
+| Program | Platform | Max Bounty | Key Tech |
+|---------|----------|-----------|----------|
+| Google VRP | Independent | $150K | Chrome, Android, Cloud, GCP, Go |
+| Microsoft MSRC | Independent | $100K | Windows, Azure, Office 365, .NET |
+| Apple Security | Independent | $1M | iOS, macOS, WebKit, Safari, iCloud |
+| Immunefi | Immunefi | $500K | DeFi, smart contracts, Solidity, bridges |
 
-## Telegram Commands (13)
+**Tier 2 — High Volume:**
+| Program | Platform | Key Tech |
+|---------|----------|----------|
+| HackerOne Top 50 | HackerOne | Web apps, APIs, cloud, mobile |
+| Bugcrowd Top 30 | Bugcrowd | Web apps, APIs, IoT, cloud |
+| GitLab | HackerOne | Ruby, Rails, GraphQL, CI/CD, Docker |
+| Shopify | HackerOne | Ruby, Rails, GraphQL, payments, Liquid |
+
+**Tier 3 — Specialized:**
+| Program | Platform | Key Tech |
+|---------|----------|----------|
+| Railway | Independent | Docker, K8s, Node, PostgreSQL, Redis |
+| Alibaba | Independent | Cloud, Java, K8s, microservices |
+| Veeam | Bugcrowd | Backup, Windows, .NET, VMware |
+| Fortinet | Independent | FortiOS, FortiGate, VPN, firewall |
+| Cisco | Bugcrowd | IOS, networking, VPN, Webex |
+| WordPress | HackerOne | PHP, MySQL, plugins, themes |
+| Docker | HackerOne | Docker Engine, containerd, runc |
+| Redis | HackerOne | Redis, Lua, in-memory data |
+
+### Priority Scoring (0-100)
+
+| Factor | Weight | Logic |
+|--------|--------|-------|
+| Tech stack match | 30 | CVE description/CPE keywords vs program techStack |
+| CWE relevance | 20 | Is CWE in program's high-value list? |
+| CVSS score | 15 | Normalized: cvss / 10 × 15 |
+| Exploit available | 15 | Has PoC or in CISA KEV? |
+| Freshness | 10 | <24h = 10, <72h = 7, <7d = 4, else 0 |
+| Competition level | 10 | Independent = 10, HackerOne/Bugcrowd = 5 |
+
+### Submission Tracker
+Status flow: `submitted → acknowledged → accepted → paid → rejected`
+- Prevents duplicate reporting
+- Tracks payout analytics per program
+- Win rate, CWE skill breakdown, time-to-payout
+
+## Bounty Pipeline (LIVE — March 15, 2026)
+
+When a match scores >= 70, automatically runs the full pipeline:
+
+1. **Research package** (`buildResearchPackage`) — Parallel fetches: NVD disclosure details, GitHub PoC search, Sploitus exploit search, passive recon (HTTP headers, public repos, tech inference), exploitability assessment (0-100)
+2. **Report draft** (`draftBountyReport`) — Opus 4.6 generates submission-ready report in program's format (email/HackerOne/Bugcrowd/Intigriti). Includes title, CVSS justification, reproduction steps, impact, remediation. Falls back to structured template if API unavailable.
+3. **Brain push** (`pushReportToBrain`) — Pushes full report to Brain's `POST /bounty/reports` for review/edit/approve from the Brain dashboard. Fire-and-forget (Brain failures don't block pipeline).
+4. **Telegram delivery** (`formatBountyPackage`) — Ready-to-act package with research summary + full report. Auto-splits across multiple messages (4096 char limit).
+
+**Manual trigger:** `/pipeline CVE-2026-XXXX program_id` — runs pipeline on any CVE × program combo (includes Brain push).
+
+**Human steps remaining:** reproduce locally, review report (on Brain dashboard or Telegram), submit, `/submit CVE program`.
+
+## Telegram Commands (18)
 
 | Command | Description |
 |---------|-------------|
 | `/start` | Welcome + capabilities |
-| `/status` | Full agent status — feeds, model, database, uptime |
+| `/status` | Full agent status — feeds, model, programs, uptime |
 | `/stats` | CVE statistics (24h) with bounty metrics |
 | `/critical` | Recent critical/high CVEs with exploit + bounty flags |
 | `/cve [ID]` | Detailed CVE lookup (local + NVD API) |
 | `/threats` | Opus 4.6 threat landscape analysis |
 | `/bounty` | Bug bounty opportunities + Nuclei template priorities |
-| `/exploits` | Recent public exploits (Exploit-DB + PacketStorm) |
+| `/exploits` | Recent public exploits (Exploit-DB + Sploitus) |
 | `/news` | Security news headlines (The Hacker News) |
 | `/feeds` | Feed health dashboard with last poll times |
 | `/scan [domain]` | Security header check with letter grade |
+| `/programs` | List all 16 bounty programs with tech stacks and scope |
+| `/matches [program]` | Top CVE matches scored by priority, optionally filtered |
+| `/submit [cve] [program]` | Mark a CVE as submitted, prevents duplicate alerts |
+| `/payouts` | Revenue analytics — earned, pending, win rate, skill breakdown |
+| `/pipeline [cve] [program]` | Manually trigger bounty pipeline for any CVE × program combo |
 | `/chatid` | Show chat ID |
 | `/help` | All commands |
 
@@ -104,10 +197,10 @@ Every CVE is scored for bounty relevance based on:
 | `TELEGRAM_BOT_TOKEN` | Yes | From @BotFather |
 | `TELEGRAM_CHAT_ID` | Yes | Default alert chat |
 | `ANTHROPIC_API_KEY` | Yes | Claude API (Opus 4.6) |
+| `GITHUB_TOKEN` | Yes | GitHub Advisories + Nuclei Templates + PoC search |
 | `BRAIN_API_URL` | No | Brain production URL |
 | `BRAIN_API_KEY` | No | Shared API key for Brain intel |
 | `NVD_API_KEY` | No | Higher NVD rate limits |
-| `GITHUB_TOKEN` | No | Higher GitHub API limits |
 | `PORT` | No | Server port (Railway assigns) |
 
 ## File Structure
@@ -116,49 +209,87 @@ Every CVE is scored for bounty relevance based on:
 security-agent/
 ├── package.json
 ├── Dockerfile
-├── CLAUDE.md
+├── CLAUDE.md          # This file
+├── AGENTS.md          # Parallel build coordination
 ├── .gitignore
 ├── .env.example
 └── src/
-    ├── index.js      # Express + 3 crons + alert formatters
-    ├── telegram.js   # 13 commands + quick scan + HTML alerts
-    ├── intel.js      # 7-feed polling engine + bounty scoring + RSS parser
-    ├── analysis.js   # Opus 4.6 threat analysis + bounty strategy
-    └── findings.js   # Finding store (in-memory)
+    ├── index.js           # Express + 3 crons + API routes + alert formatters
+    ├── intel.js           # 15-feed polling engine + CVE store + bounty scoring + RSS parser
+    ├── bounty-manager.js  # 16 programs, matching engine, scoring, submissions, analytics
+    ├── bounty-pipeline.js # PoC research + Opus report drafting + Brain push + Telegram delivery
+    ├── analysis.js        # Opus 4.6 threat analysis + bounty strategy
+    ├── underground.js     # Alt feeds: InTheWild, VulDB, oss-sec, FullDisclosure, Bugtraq, OpenCVE, CERT
+    ├── findings.js        # Finding store (in-memory)
+    └── telegram.js        # 18 commands + quick scan + HTML alerts
 ```
+
+## API Routes
+
+All routes behind `BRAIN_API_KEY` auth:
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/health` | Health check (no auth) |
+| `GET` | `/intel/security` | Full intel: stats, CVEs, analysis, bounty matches, programs, submissions |
+| `GET` | `/intel/cve?q=` | CVE search (local + NVD fallback) |
+| `GET` | `/intel/analysis` | Latest analysis + 24h history |
+| `GET` | `/bounty/programs` | List all programs |
+| `POST` | `/bounty/programs` | Add new program |
+| `GET` | `/bounty/matches` | Top matches with scores |
+| `GET` | `/bounty/matches/:programId` | Matches for specific program |
+| `GET` | `/bounty/submissions` | Submission tracker |
 
 ## Brain Integration
 
-| Endpoint | Data |
-|----------|------|
-| `GET /intel/security` | Stats, critical CVEs, analysis, bounty opps, exploits, news |
-| `GET /intel/cve?q=` | CVE search (local + NVD fallback) |
-| `GET /intel/analysis` | Latest analysis + 24h history |
+**Inbound (Brain pulls from Security Agent):**
 
-Auth: `x-api-key` header (same pattern as Trader Agent)
+The Brain calls `GET /intel/security` which returns:
+```javascript
+{
+  stats, criticalCVEs, recentAnalysis, bountyOpportunities,
+  recentExploits, recentNews,
+  bountyPrograms,    // all active programs
+  bountyMatches,     // top 10 scored matches
+  submissions        // recent 10 submissions
+}
+```
 
-## Future Phases (all on Railway)
+The Brain's `security_intel` tool consumes this — no Brain code changes needed when we add features.
 
-1. **Nuclei Scanning** — Docker-based vuln scanning, custom template generation
-2. **Recon Pipeline** — subfinder + httpx for asset discovery
-3. **HackerOne Integration** — Scope parsing, automated report drafts, submission API
-4. **SMB SaaS** — Customer dashboard, Stripe billing, scheduled scans
-5. **Brain Tool** — `security_scan` tool for the AI Brain
-6. **Trader Agent Cross-Intel** — Feed cybersecurity market insights to the Trader
+**Outbound (Security Agent pushes to Brain):**
+
+The bounty pipeline pushes reports to `POST {BRAIN_API_URL}/bounty/reports` with `x-api-key` auth. Report payload includes full CVE details, draft report, research summary, and status tracking (`pending → editing → submitted → paid/rejected`). Arthur can review/edit/approve from the Brain dashboard.
+
+## Key Design Decisions
+
+- **Opus 4.6 for analysis + report drafting** — Best model produces best intelligence and professional bounty reports. Worth the cost.
+- **15 feeds, all free** — Maximum coverage at zero data cost. Replaced dead feeds (PacketStorm → Sploitus, AttackerKB → VulDB, InTheWild GitHub → API).
+- **5-minute polling** — Speed is money in bug bounties. First to find = first to report.
+- **24h initial NVD poll** — On redeploy, first poll fetches 24h of CVEs to seed the in-memory store. Subsequent polls use 2h window.
+- **6-factor priority scoring** — Not all CVEs are equal. Tech stack match, CWE, CVSS, exploit availability, freshness, and competition level.
+- **One CVE, multiple programs** — A single CVE can match multiple programs. Each match is scored independently.
+- **HTML parse mode** — More reliable than Markdown for Telegram. Use `esc()` helper for all dynamic text.
+- **All in-memory** — Fast, simple, no database. Programs are code-defined, matches and submissions reset on redeploy.
+- **Passive recon only** — Bounty pipeline never touches target infrastructure. Public sources only.
+- **Same stack as Brain** — Node.js + Express. Easy to maintain, deploy, and integrate.
 
 ## Development
 
 ```bash
 npm install
-npm run dev       # Watch mode
+npm run dev       # Watch mode (nodemon)
 npm start         # Production
+railway up        # Deploy to Railway
+railway logs      # View logs
 ```
 
-## Key Design Decisions
+## Feed Reliability Notes
 
-- **Opus 4.6 for analysis** — This is for making money. The best model produces the best intelligence. We're on the $100 Max plan.
-- **7 feeds, all free** — Maximum coverage at zero data cost. Every feed adds signal.
-- **5-minute polling** — Speed is money in bug bounties. First to find = first to report.
-- **Bounty relevance scoring** — Not all CVEs are equal. Score by CWE, attack vector, and web exposure.
-- **HTML parse mode** — More reliable than Markdown for Telegram formatting.
-- **Same stack as Brain** — Node.js + Express. Easy to maintain, deploy, and integrate.
+Some feeds have died and been replaced over time:
+- **PacketStorm** → Replaced with **Sploitus** (domain moved, TOS wall)
+- **AttackerKB** → Replaced with **VulDB** (CloudFront WAF blocking)
+- **InTheWild** → Switched from GitHub raw JSON to **official API** (repo deleted)
+- **oss-security** → Switched from Openwall to **seclists.org mirror** (Openwall removed RSS)
+
+When a feed breaks, check for alternative mirrors/APIs before removing it. The `GITHUB_TOKEN` env var is required for GitHub Advisories and Nuclei Templates feeds.
