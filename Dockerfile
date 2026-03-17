@@ -3,6 +3,7 @@ FROM node:20-slim
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV DATA_DIR=/data
 
 # Phase 2: Nuclei — safe, detection-only vulnerability fingerprinting
 RUN apt-get update && apt-get install -y --no-install-recommends wget unzip ca-certificates \

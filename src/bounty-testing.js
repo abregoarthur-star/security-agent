@@ -23,11 +23,18 @@ import dns from 'node:dns';
 const execFileAsync = promisify(execFile);
 const resolve4 = promisify(dns.resolve4);
 
+import { readJSON, createDebouncedWriter } from './store.js';
+
 const FETCH_TIMEOUT = 8000;
 
-// ─── In-Memory Test Results Store ────────────────────────
+// ─── Persistent Test Results Store ───────────────────────
 
-const testResultsStore = [];
+const testResultsStore = readJSON('test-results.json', []);
+const scheduleSaveTests = createDebouncedWriter('test-results.json', 3000);
+
+if (testResultsStore.length > 0) {
+  console.log(`[TESTING] Loaded ${testResultsStore.length} test results from disk`);
+}
 
 // ─── Main Entry Point ────────────────────────────────────
 
@@ -114,6 +121,8 @@ export async function runPassiveValidation(match, program, researchPackage) {
   if (testResultsStore.length > 100) {
     testResultsStore.splice(0, testResultsStore.length - 100);
   }
+
+  scheduleSaveTests(testResultsStore);
 
   console.log(`[TESTING] Validation complete: ${confidenceScore}/100 (${confidenceLabel}) for ${match.cveId} x ${program.name}`);
   return result;

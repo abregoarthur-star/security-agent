@@ -12,10 +12,18 @@
  * - SMB monitoring priorities
  */
 
+import { readJSON, createDebouncedWriter } from './store.js';
+
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 
-let latestAnalysis = null;
-let analysisHistory = [];
+const savedAnalysis = readJSON('analysis.json', null);
+let latestAnalysis = savedAnalysis?.latest || null;
+let analysisHistory = savedAnalysis?.history || [];
+const scheduleSaveAnalysis = createDebouncedWriter('analysis.json', 5000);
+
+if (latestAnalysis) {
+  console.log(`[ANALYSIS] Loaded ${analysisHistory.length} analysis entries from disk`);
+}
 
 /**
  * Run Opus 4.6 threat landscape analysis.
@@ -157,6 +165,7 @@ ${newsContext || 'No recent news.'}`,
     // Keep analysis history (last 24 entries = 24 hours at hourly)
     analysisHistory.push(latestAnalysis);
     if (analysisHistory.length > 24) analysisHistory.shift();
+    scheduleSaveAnalysis({ latest: latestAnalysis, history: analysisHistory });
 
     return latestAnalysis;
   } catch (err) {

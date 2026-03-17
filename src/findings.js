@@ -2,10 +2,17 @@
  * Findings Store
  *
  * Tracks vulnerability findings from scans and intelligence feeds.
- * In-memory for now, will persist to Railway volume later.
+ * Persisted to Railway volume via store.js.
  */
 
-let findings = [];
+import { readJSON, createDebouncedWriter } from './store.js';
+
+let findings = readJSON('findings.json', []);
+const scheduleSaveFindings = createDebouncedWriter('findings.json', 3000);
+
+if (findings.length > 0) {
+  console.log(`[FINDINGS] Loaded ${findings.length} findings from disk`);
+}
 
 /**
  * Add a finding.
@@ -19,6 +26,7 @@ export function addFinding(finding) {
     createdAt: new Date().toISOString(),
   };
   findings.push(entry);
+  scheduleSaveFindings(findings);
   return entry;
 }
 
@@ -45,11 +53,12 @@ export function updateFinding(id, updates) {
   const finding = findings.find(f => f.id === id);
   if (!finding) return null;
   Object.assign(finding, updates, { updatedAt: new Date().toISOString() });
+  scheduleSaveFindings(findings);
   return finding;
 }
 
 /**
- * Load findings (placeholder for disk persistence).
+ * Load findings.
  */
 export function loadFindings() {
   return findings;

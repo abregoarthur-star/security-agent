@@ -10,15 +10,32 @@
 
 import { getBountyRelevantCVEs } from './intel.js';
 import { getNewPOCs, getExploitedInWild } from './underground.js';
+import { readJSON, createDebouncedWriter } from './store.js';
 
-// ─── In-Memory Store ──────────────────────────────────────
+// ─── Persistent Store ─────────────────────────────────────
+
+const saved = readJSON('bounty-store.json', null);
 
 let bountyStore = {
-  programs: [],          // Program registry
-  matches: [],           // CVE-to-program matches (scored)
-  submissions: [],       // Submission tracking
-  lastMatchRun: null,
+  programs: [],          // Program registry (rebuilt from BUILT_IN on boot)
+  matches: saved?.matches || [],
+  submissions: saved?.submissions || [],
+  lastMatchRun: saved?.lastMatchRun || null,
 };
+
+const scheduleSave = createDebouncedWriter('bounty-store.json', 3000);
+
+function saveBountyStore() {
+  scheduleSave({
+    matches: bountyStore.matches,
+    submissions: bountyStore.submissions,
+    lastMatchRun: bountyStore.lastMatchRun,
+  });
+}
+
+if (saved) {
+  console.log(`[BOUNTY] Loaded ${saved.matches?.length || 0} matches, ${saved.submissions?.length || 0} submissions from disk`);
+}
 
 // ─── Built-in Programs ────────────────────────────────────
 
@@ -638,6 +655,7 @@ export function matchCVEsToPrograms() {
   newMatches.sort((a, b) => b.score - a.score);
 
   console.log(`[BOUNTY] Matching complete: ${newMatches.length} new matches, ${bountyStore.matches.length} total`);
+  if (newMatches.length > 0) saveBountyStore();
   return { newMatches, totalMatches: bountyStore.matches.length };
 }
 
@@ -774,6 +792,7 @@ export function addSubmission(programId, cveId, details = {}) {
   };
 
   bountyStore.submissions.push(submission);
+  saveBountyStore();
   console.log(`[BOUNTY] Tracked submission: ${cveId} -> ${program.name} (${submission.status})`);
   return submission;
 }
@@ -787,6 +806,7 @@ export function updateSubmission(id, updates) {
     if (updates[key] !== undefined) sub[key] = updates[key];
   }
   sub.updatedAt = new Date().toISOString();
+  saveBountyStore();
   return sub;
 }
 
