@@ -1,7 +1,7 @@
-# Security Agent v2.1
+# Security Agent v2.2
 
 ## Overview
-Autonomous AI security intelligence agent powered by Claude Opus 4.6. Monitors 15 vulnerability databases and exploit feeds, scores CVEs against 16 bug bounty programs, generates ready-to-submit bounty reports, and delivers actionable alerts via Telegram.
+Autonomous AI security intelligence agent powered by Claude Opus 4.6. Monitors 15 vulnerability databases and exploit feeds, scores CVEs against 16 bug bounty programs, **validates targets with passive testing**, generates evidence-backed bounty reports, and delivers actionable alerts via Telegram.
 
 **Bot:** @UberSecurityBot on Telegram
 **Hosting:** Railway (Hobby plan)
@@ -38,16 +38,18 @@ Autonomous AI security intelligence agent powered by Claude Opus 4.6. Monitors 1
 └────────────────────────────┬─────────────────────────────────────┘
                              │
 ┌────────────────────────────▼─────────────────────────────────────┐
-│              SECURITY AGENT v2.1 (Railway)                        │
+│              SECURITY AGENT v2.2 (Railway)                        │
 │                                                                   │
 │  index.js ──────── Express server + 3 crons + API routes          │
 │  intel.js ──────── 15-feed polling engine + CVE store + scoring   │
 │  bounty-manager.js  16 programs, matching engine, submissions     │
-│  bounty-pipeline.js PoC research + report drafting + Brain push   │
+│  bounty-pipeline.js PoC research + validation + report + Brain    │
+│  bounty-testing.js  Passive validation + Nuclei detection engine  │
 │  analysis.js ───── Opus 4.6 threat analysis + bounty strategy     │
 │  underground.js ── Alt feeds (InTheWild, VulDB, oss-sec, etc.)    │
 │  findings.js ───── Finding store (in-memory)                      │
-│  telegram.js ───── 18 commands + alert formatting                 │
+│  hackerone.js ──── HackerOne API sync                             │
+│  telegram.js ───── 20 commands + alert formatting                 │
 └────────────────────────────┬─────────────────────────────────────┘
                              │
               ┌──────────────┼──────────────┐
@@ -154,20 +156,46 @@ Status flow: `submitted → acknowledged → accepted → paid → rejected`
 - Tracks payout analytics per program
 - Win rate, CWE skill breakdown, time-to-payout
 
-## Bounty Pipeline (LIVE — March 15, 2026)
+## Bounty Pipeline (LIVE — March 15, 2026; Validation added March 16)
 
-When a match scores >= 70, automatically runs the full pipeline:
+When a match scores >= 80, automatically runs the full pipeline:
 
 1. **Research package** (`buildResearchPackage`) — Parallel fetches: NVD disclosure details, GitHub PoC search, Sploitus exploit search, passive recon (HTTP headers, public repos, tech inference), exploitability assessment (0-100)
-2. **Report draft** (`draftBountyReport`) — Opus 4.6 generates submission-ready report in program's format (email/HackerOne/Bugcrowd/Intigriti). Includes title, CVSS justification, reproduction steps, impact, remediation. Falls back to structured template if API unavailable.
-3. **Brain push** (`pushReportToBrain`) — Pushes full report to Brain's `POST /bounty/reports` for review/edit/approve from the Brain dashboard. Fire-and-forget (Brain failures don't block pipeline).
-4. **Telegram delivery** (`formatBountyPackage`) — Ready-to-act package with research summary + full report. Auto-splits across multiple messages (4096 char limit).
+2. **Passive validation** (`runPassiveValidation`) — 5 zero-risk tests against target: version fingerprinting, endpoint existence, technology confirmation, Shodan InternetDB lookup, CPE match verification. Returns confidence score (0-100) with label (confirmed/likely/uncertain/unlikely). Evidence captured for every test.
+3. **Report draft** (`draftBountyReport`) — Opus 4.6 generates submission-ready report in program's format (email/HackerOne/Bugcrowd/Intigriti). Validation evidence injected into prompt so reports cite real findings. Falls back to structured template if API unavailable.
+4. **Brain push** (`pushReportToBrain`) — Pushes full report + test results to Brain's `POST /bounty/reports` for review/edit/approve. Fire-and-forget (Brain failures don't block pipeline).
+5. **Telegram delivery** (`formatBountyPackage`) — Ready-to-act package with VALIDATION section (confidence score + per-test results), research summary, and full report. Auto-splits across multiple messages (4096 char limit).
 
-**Manual trigger:** `/pipeline CVE-2026-XXXX program_id` — runs pipeline on any CVE × program combo (includes Brain push).
+**Manual triggers:**
+- `/pipeline CVE-2026-XXXX program_id` — full pipeline (research + validation + report)
+- `/test CVE-2026-XXXX program_id` — validation only (fast, no Opus call)
+- `/evidence matchId` — view full evidence and audit log for a test
 
-**Human steps remaining:** reproduce locally, review report (on Brain dashboard or Telegram), submit, `/submit CVE program`.
+**Human steps remaining:** review report + evidence (on Brain dashboard or Telegram), submit, `/submit CVE program`.
 
-## Telegram Commands (18)
+## Passive Validation Engine (LIVE — March 16, 2026)
+
+**File:** `src/bounty-testing.js`
+
+5 passive tests, zero risk, no payloads:
+
+| Test | Points | Method |
+|------|--------|--------|
+| Version fingerprint | +30 (exact) / +15 (partial) | HTTP headers (`Server`, `X-Powered-By`, `X-AspNet-Version`) + HTML `<meta generator>` vs CVE affected version ranges |
+| Endpoint existence | +20 | HEAD requests to paths extracted from CVE description/references |
+| Technology confirmation | +15 | Probe tech-specific paths (`/wp-login.php`, `/actuator/health`, `/__graphql`, etc.) |
+| Shodan InternetDB | +10 | `https://internetdb.shodan.io/{ip}` — free, no API key, zero scanning |
+| CPE match | +10 | NVD CPE entries vs detected tech stack overlap |
+
+**Confidence labels:** 90+ confirmed, 70-89 likely, 50-69 uncertain, <50 unlikely
+
+**Phase 2 (Nuclei detection):** Code ready in `runNucleiDetection()`. Requires Nuclei binary in Docker image (deferred — GitHub download URL needs fixing). Only runs info-severity templates, scope-validated, rate-limited (5 req/s), requires `safeHarbor: true`.
+
+**Future phases:**
+- Phase 3: Sandbox reproduction (Docker containers on separate VPS)
+- Phase 4: Authorized active testing (human-approved, detection-only payloads)
+
+## Telegram Commands (20)
 
 | Command | Description |
 |---------|-------------|
@@ -187,6 +215,8 @@ When a match scores >= 70, automatically runs the full pipeline:
 | `/submit [cve] [program]` | Mark a CVE as submitted, prevents duplicate alerts |
 | `/payouts` | Revenue analytics — earned, pending, win rate, skill breakdown |
 | `/pipeline [cve] [program]` | Manually trigger bounty pipeline for any CVE × program combo |
+| `/test [cve] [program]` | Run passive validation — version, endpoints, tech, Shodan, CPE |
+| `/evidence [matchId]` | View full test evidence, per-test details, and audit log |
 | `/chatid` | Show chat ID |
 | `/help` | All commands |
 
@@ -217,11 +247,14 @@ security-agent/
     ├── index.js           # Express + 3 crons + API routes + alert formatters
     ├── intel.js           # 15-feed polling engine + CVE store + bounty scoring + RSS parser
     ├── bounty-manager.js  # 16 programs, matching engine, scoring, submissions, analytics
-    ├── bounty-pipeline.js # PoC research + Opus report drafting + Brain push + Telegram delivery
+    ├── bounty-pipeline.js # PoC research + validation + Opus report + Brain push + Telegram
+    ├── bounty-testing.js  # Passive validation engine (5 tests) + Nuclei detection (Phase 2)
     ├── analysis.js        # Opus 4.6 threat analysis + bounty strategy
+    ├── exploit-analysis.js # CVE deep analysis + Nuclei template generation
     ├── underground.js     # Alt feeds: InTheWild, VulDB, oss-sec, FullDisclosure, Bugtraq, OpenCVE, CERT
     ├── findings.js        # Finding store (in-memory)
-    └── telegram.js        # 18 commands + quick scan + HTML alerts
+    ├── hackerone.js       # HackerOne API program sync
+    └── telegram.js        # 20 commands + quick scan + HTML alerts
 ```
 
 ## API Routes
@@ -239,6 +272,8 @@ All routes behind `BRAIN_API_KEY` auth:
 | `GET` | `/bounty/matches` | Top matches with scores |
 | `GET` | `/bounty/matches/:programId` | Matches for specific program |
 | `GET` | `/bounty/submissions` | Submission tracker |
+| `GET` | `/bounty/test/results` | All validation test results |
+| `GET` | `/bounty/test/:matchId` | Trigger validation for a specific match |
 
 ## Brain Integration
 
@@ -271,7 +306,8 @@ The bounty pipeline pushes reports to `POST {BRAIN_API_URL}/bounty/reports` with
 - **One CVE, multiple programs** — A single CVE can match multiple programs. Each match is scored independently.
 - **HTML parse mode** — More reliable than Markdown for Telegram. Use `esc()` helper for all dynamic text.
 - **All in-memory** — Fast, simple, no database. Programs are code-defined, matches and submissions reset on redeploy.
-- **Passive recon only** — Bounty pipeline never touches target infrastructure. Public sources only.
+- **Passive validation** — Bounty pipeline validates targets with read-only HTTP requests + public data (Shodan InternetDB). No payloads, no exploitation. Evidence-backed reports get paid.
+- **Phased testing approach** — Phase 1 (passive) is live. Phase 2 (Nuclei detection) code-ready. Phase 3-4 (sandbox, active) are future.
 - **Same stack as Brain** — Node.js + Express. Easy to maintain, deploy, and integrate.
 
 ## Development
