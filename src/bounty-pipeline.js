@@ -9,6 +9,8 @@
  * All recon is passive — public sources only. No active exploitation.
  */
 
+import { runPassiveValidation } from './bounty-testing.js';
+
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const NVD_API = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
 const SPLOITUS_API = 'https://sploitus.com/search';
@@ -27,15 +29,25 @@ export async function runBountyPipeline(env, match, program) {
   console.log(`[PIPELINE] Starting pipeline for ${match.cveId} x ${program.name}...`);
 
   const researchPackage = await buildResearchPackage(env, match, program);
-  const draftReport = await draftBountyReport(env, match, program, researchPackage);
 
-  // Push to Brain for review/edit/approve
-  await pushReportToBrain(env, match, program, researchPackage, draftReport);
+  // Phase 1: Passive validation — confirm the target actually runs the vulnerable software
+  let testResults = null;
+  try {
+    testResults = await runPassiveValidation(match, program, researchPackage);
+    console.log(`[PIPELINE] Validation: ${testResults.confidenceScore}/100 (${testResults.confidenceLabel})`);
+  } catch (err) {
+    console.error(`[PIPELINE] Validation error (non-blocking):`, err.message);
+  }
 
-  const telegramMessage = formatBountyPackage(match, program, researchPackage, draftReport);
+  const draftReport = await draftBountyReport(env, match, program, researchPackage, testResults);
+
+  // Push to Brain for review/edit/approve (includes test results)
+  await pushReportToBrain(env, match, program, researchPackage, draftReport, testResults);
+
+  const telegramMessage = formatBountyPackage(match, program, researchPackage, draftReport, testResults);
 
   console.log(`[PIPELINE] Pipeline complete for ${match.cveId} x ${program.name}`);
-  return { researchPackage, draftReport, telegramMessage };
+  return { researchPackage, draftReport, testResults, telegramMessage };
 }
 
 // ─── Research Package ────────────────────────────────────
@@ -491,7 +503,7 @@ function buildRationale(match, disclosure, pocs, recon) {
  * Draft a submission-ready bug bounty report using Opus 4.6.
  * One Opus call per pipeline run to control costs.
  */
-export async function draftBountyReport(env, match, program, researchPackage) {
+export async function draftBountyReport(env, match, program, researchPackage, testResults = null) {
   const apiKey = env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     console.error('[PIPELINE] No ANTHROPIC_API_KEY — skipping report draft');
@@ -501,7 +513,7 @@ export async function draftBountyReport(env, match, program, researchPackage) {
   // Determine report format based on platform
   const format = getPlatformFormat(program.platform);
 
-  const prompt = buildReportPrompt(match, program, researchPackage, format);
+  const prompt = buildReportPrompt(match, program, researchPackage, format, testResults);
 
   try {
     const res = await fetch(ANTHROPIC_API, {
@@ -589,7 +601,7 @@ function getPlatformFormat(platform) {
   }
 }
 
-function buildReportPrompt(match, program, researchPackage, format) {
+function buildReportPrompt(match, program, researchPackage, format, testResults = null) {
   const formatInstructions = {
     email: `Format as a professional email to ${program.submitTo || 'the security team'}. Include subject line, greeting, full technical details, and sign-off. Put the full email in the "emailBody" field.`,
     hackerone: `Format for HackerOne submission. Use markdown formatting. Include all standard HackerOne report sections. Put the markdown report in the "hackeroneMarkdown" field.`,
@@ -635,8 +647,15 @@ Confidence: ${researchPackage.exploitability.confidence}
 Target Likely Vulnerable: ${researchPackage.exploitability.targetLikelyVulnerable}
 Rationale: ${researchPackage.exploitability.rationale}
 
+PASSIVE VALIDATION RESULTS:
+${testResults ? `Confidence: ${testResults.confidenceScore}/100 (${testResults.confidenceLabel})
+Tests:
+${testResults.tests.map(t => `- ${t.name}: ${t.result} — ${t.detail}`).join('\n')}` : 'No validation data available'}
+
 FORMAT: ${format}
 ${formatInstructions[format]}
+
+IMPORTANT: If passive validation data is available, incorporate the evidence into the report. Mention specific confirmed versions, detected endpoints, or technology confirmations. This transforms the report from theoretical to evidence-backed.
 
 Respond with a single JSON object containing:
 {
@@ -689,7 +708,7 @@ function fallbackReport(match, program, researchPackage) {
  * Push a bounty report to the Brain for review/edit/approve.
  * Fire-and-forget — Brain failures don't block the pipeline.
  */
-async function pushReportToBrain(env, match, program, researchPackage, draftReport) {
+async function pushReportToBrain(env, match, program, researchPackage, draftReport, testResults = null) {
   const brainUrl = process.env.BRAIN_API_URL;
   const brainKey = process.env.BRAIN_API_KEY;
   if (!brainUrl || !brainKey) {
@@ -730,6 +749,17 @@ async function pushReportToBrain(env, match, program, researchPackage, draftRepo
       exploitabilityConfidence: researchPackage.exploitability.confidence,
       targetLikelyVulnerable: researchPackage.exploitability.targetLikelyVulnerable,
     },
+    // Validation evidence
+    testResults: testResults ? {
+      confidenceScore: testResults.confidenceScore,
+      confidenceLabel: testResults.confidenceLabel,
+      tier: testResults.tier,
+      tests: testResults.tests.map(t => ({
+        name: t.name,
+        result: t.result,
+        detail: t.detail,
+      })),
+    } : null,
     status: 'pending',  // pending | editing | submitted | acknowledged | accepted | paid | rejected
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -766,7 +796,7 @@ async function pushReportToBrain(env, match, program, researchPackage, draftRepo
  * Format the full bounty pipeline output for Telegram.
  * Returns an array of messages (split at 4096 char limit).
  */
-export function formatBountyPackage(match, program, researchPackage, draftReport) {
+export function formatBountyPackage(match, program, researchPackage, draftReport, testResults = null) {
   const e = esc;
 
   // ── Header message ──
@@ -774,6 +804,17 @@ export function formatBountyPackage(match, program, researchPackage, draftReport
   header += `📊 Match Score: ${match.score}/100 | Severity: ${e(draftReport.severity)}\n`;
   header += `💰 Est. Payout: ${e(draftReport.estimatedBounty)}\n`;
   header += `⚡ Duplicate Risk: ${e(draftReport.duplicateRisk)}\n\n`;
+
+  // ── Validation section ──
+  if (testResults) {
+    const confIcon = testResults.confidenceScore >= 70 ? '🟢' : testResults.confidenceScore >= 50 ? '🟡' : '🔴';
+    header += `${confIcon} <b>VALIDATION: ${testResults.confidenceScore}/100 — ${e(testResults.confidenceLabel)}</b>\n`;
+    for (const test of testResults.tests) {
+      const icon = test.result === 'pass' ? '✅' : test.result === 'partial' ? '🟡' : test.result === 'skip' ? '⏭' : '❌';
+      header += `${icon} ${e(test.name)}: ${e(test.detail?.slice(0, 120))}\n`;
+    }
+    header += '\n';
+  }
 
   header += `🔬 <b>RESEARCH PACKAGE</b>\n`;
   header += `Tech Match: ${e(researchPackage.targetRecon.confirmedTech.slice(0, 8).join(', '))}\n`;

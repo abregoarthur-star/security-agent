@@ -527,6 +527,15 @@ export function addProgram(program) {
   return entry;
 }
 
+export function upsertProgram(program) {
+  const existing = bountyStore.programs.find(p => p.id === program.id);
+  if (existing) {
+    const { id, ...updates } = program;
+    return updateProgram(id, updates);
+  }
+  return addProgram(program);
+}
+
 export function updateProgram(id, updates) {
   const program = bountyStore.programs.find(p => p.id === id);
   if (!program) throw new Error(`Program '${id}' not found`);
@@ -534,7 +543,6 @@ export function updateProgram(id, updates) {
   // Don't allow changing the ID
   delete updates.id;
   Object.assign(program, updates);
-  console.log(`[BOUNTY] Updated program: ${program.name}`);
   return program;
 }
 

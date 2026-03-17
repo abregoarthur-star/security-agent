@@ -23,10 +23,12 @@ import { analyzeExploit } from './exploit-analysis.js';
 import { loadFindings, getFindings } from './findings.js';
 import {
   loadPrograms, getPrograms, getProgram, addProgram, getTopMatches,
-  getMatchesForProgram, getSubmissions, getPayoutStats, matchCVEsToPrograms,
+  getMatchesForProgram, getMatchById, getSubmissions, getPayoutStats, matchCVEsToPrograms,
   analyzeMatch, getBountyStore,
 } from './bounty-manager.js';
 import { runBountyPipeline } from './bounty-pipeline.js';
+import { runPassiveValidation, getTestResults, getTestResultByMatch, getTestResultByCVE } from './bounty-testing.js';
+import { syncHackerOnePrograms, getHackerOneSyncStatus } from './hackerone.js';
 
 const app = express();
 app.use(express.json());
@@ -41,7 +43,7 @@ app.get('/', (req, res) => {
     agent: 'uber-security-agent',
     model: 'claude-opus-4-6',
     feeds: 15,
-    version: '2.0.0',
+    version: '2.2.0',
   });
 });
 
@@ -191,6 +193,59 @@ app.post('/bounty/programs', (req, res) => {
   }
 });
 
+// ─── HackerOne Routes ──────────────────────────────────
+
+app.post('/bounty/hackerone/sync', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.BRAIN_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const result = await syncHackerOnePrograms();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/bounty/hackerone/status', (req, res) => {
+  res.json(getHackerOneSyncStatus());
+});
+
+// ─── Testing / Validation Routes ─────────────────────────
+
+// Static route must come before dynamic :matchId to avoid shadowing
+app.get('/bounty/test/results', (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.BRAIN_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const limit = parseInt(req.query.limit) || 50;
+  res.json({ results: getTestResults(limit) });
+});
+
+app.get('/bounty/test/:matchId', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.BRAIN_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const match = getMatchById(req.params.matchId);
+  if (!match) return res.status(404).json({ error: 'Match not found' });
+
+  const program = getProgram(match.programId);
+  if (!program) return res.status(404).json({ error: 'Program not found' });
+
+  try {
+    const { buildResearchPackage } = await import('./bounty-pipeline.js');
+    const researchPackage = await buildResearchPackage(process.env, match, program);
+    const testResult = await runPassiveValidation(match, program, researchPackage);
+    res.json({ ok: true, testResult });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Cron Jobs ──────────────────────────────────────────
 
 // Every 5 minutes: Poll ALL intelligence feeds — speed is money
@@ -203,29 +258,25 @@ cron.schedule('*/5 * * * *', async () => {
       pollUndergroundFeeds(),
     ]);
 
-    // Alert on new critical CVEs
+    // Alert on new critical CVEs — batch into one message
     if (results.newCritical.length > 0 && CHAT_ID) {
-      for (const cve of results.newCritical.slice(0, 5)) {
-        const msg = formatCVEAlert(cve);
-        await sendMessage(CHAT_ID, msg);
+      const criticals = results.newCritical.slice(0, 5);
+      let msg = `<b>🔴 ${criticals.length} New Critical CVE${criticals.length > 1 ? 's' : ''}</b>\n`;
+      for (const cve of criticals) {
+        msg += `\n• <b>${esc(cve.id)}</b> (CVSS ${cve.cvss || 'N/A'})\n  ${esc((cve.description || '').slice(0, 120))}`;
       }
+      await sendMessage(CHAT_ID, msg);
     }
 
-    // Alert on new exploits
-    if (results.newExploits?.length > 0 && CHAT_ID) {
-      for (const exploit of results.newExploits.slice(0, 3)) {
-        const msg = formatExploitAlert(exploit);
-        await sendMessage(CHAT_ID, msg);
-      }
-    }
-
-    // Alert on new PoC exploit repos — URGENT: someone just published working exploit code
+    // Alert on new PoC exploit repos — only top 2, these are high-signal
     if (ugResults.newPocs?.length > 0 && CHAT_ID) {
-      for (const poc of ugResults.newPocs.slice(0, 5)) {
+      for (const poc of ugResults.newPocs.slice(0, 2)) {
         const msg = formatPoCAlert(poc);
         await sendMessage(CHAT_ID, msg);
       }
     }
+
+    // Skip individual exploit alerts — covered by bounty matching below
 
     console.log(`[CRON] Feed poll complete: ${results.total} CVEs, ${results.newCritical.length} new critical, ${results.newExploits?.length || 0} new exploits, ${ugResults.total} underground items, ${ugResults.newPocs?.length || 0} new PoCs`);
     if (ugResults.errors.length > 0) {
@@ -236,12 +287,13 @@ cron.schedule('*/5 * * * *', async () => {
     try {
       const matchResults = matchCVEsToPrograms();
       if (matchResults.newMatches.length > 0 && CHAT_ID) {
-        // Alert on top 3 new matches
-        for (const match of matchResults.newMatches.slice(0, 3)) {
+        // Only alert on high-scoring matches (>= 50), top 1 per cycle
+        const alertMatches = matchResults.newMatches.filter(m => m.score >= 50).slice(0, 1);
+        for (const match of alertMatches) {
           await sendMessage(CHAT_ID, formatBountyMatch(match));
 
-          // Opus analysis for high-scoring matches (>= 70)
-          if (match.score >= 70) {
+          // Opus analysis + pipeline for high-scoring matches (>= 80)
+          if (match.score >= 80) {
             try {
               const analysis = await analyzeMatch(match);
               if (analysis) {
@@ -290,23 +342,17 @@ cron.schedule('*/15 * * * *', async () => {
     const analysis = await runAnalysis();
 
     if (analysis && CHAT_ID) {
-      // Always send analysis digest (we're paying for Opus, use it)
+      // Send analysis digest (combined — no separate bounty alert)
       const msg = formatAnalysisDigest(analysis);
       await sendMessage(CHAT_ID, msg);
-
-      // Extra alert for bounty opportunities
-      if (analysis.bountyOpportunities?.length > 0) {
-        const bountyMsg = formatBountyAlert(analysis.bountyOpportunities);
-        await sendMessage(CHAT_ID, bountyMsg);
-      }
     }
 
-    // Deep exploit analysis on top 3 most critical new CVEs
+    // Deep exploit analysis on top 1 most critical new CVE (not 3)
     const critical = getRecentCritical();
-    const top3 = critical.slice(0, 3);
-    if (top3.length > 0 && CHAT_ID) {
-      console.log(`[CRON] Running deep exploit analysis on ${top3.length} critical CVEs...`);
-      for (const cve of top3) {
+    const top1 = critical.slice(0, 1);
+    if (top1.length > 0 && CHAT_ID) {
+      console.log(`[CRON] Running deep exploit analysis on top critical CVE...`);
+      for (const cve of top1) {
         try {
           const exploitAnalysis = await analyzeExploit(cve);
           if (exploitAnalysis && !exploitAnalysis.error) {
@@ -317,12 +363,23 @@ cron.schedule('*/15 * * * *', async () => {
           console.error(`[CRON] Exploit analysis failed for ${cve.id}:`, analysisErr.message);
         }
       }
-      console.log(`[CRON] Deep exploit analysis complete for ${top3.length} CVEs`);
     }
 
     console.log('[CRON] Opus 4.6 analysis complete');
   } catch (err) {
     console.error('[CRON] Analysis failed:', err.message);
+  }
+});
+
+// Daily 9am PT (17:00 UTC): Sync HackerOne programs
+cron.schedule('0 17 * * *', async () => {
+  if (!process.env.HACKERONE_API_TOKEN) return;
+  console.log('[CRON] Syncing HackerOne programs...');
+  try {
+    const result = await syncHackerOnePrograms(true); // force=true for daily cron
+    console.log(`[CRON] H1 sync: ${result.imported} imported, ${result.updated} updated, ${result.skipped} skipped`);
+  } catch (err) {
+    console.error('[CRON] H1 sync failed:', err.message);
   }
 });
 
@@ -592,11 +649,12 @@ const server = app.listen(PORT, async () => {
   // Initialize bounty programs
   loadPrograms();
 
-  console.log(`\n🛡️  Uber Security Agent v2.1`);
+  console.log(`\n🛡️  Uber Security Agent v2.2`);
   console.log(`   Port: ${PORT}`);
   console.log(`   Model: Claude Opus 4.6`);
   console.log(`   Feeds: 15 (7 core + 8 underground)`);
   console.log(`   Bounty Programs: ${getPrograms(true).length} active`);
+  console.log(`   Testing: Passive validation (Phase 1) + Nuclei detection (Phase 2)`);
   console.log(`   Core: NVD, CISA KEV, OSV, GitHub, ExploitDB, PacketStorm, THN`);
   console.log(`   Underground: Full Disclosure, oss-security, Vulners, GitHub PoCs, InTheWild, Nuclei, AttackerKB, MITRE ATT&CK`);
   console.log(`   CVE Poll: Every 5 minutes`);
@@ -621,12 +679,18 @@ const server = app.listen(PORT, async () => {
     console.error('Initial poll failed:', err.message);
   }
 
+  // HackerOne sync runs daily at 9 AM PT (17:00 UTC) — no startup sync needed
+  // Manual trigger: /h1sync command or POST /bounty/hackerone/sync
+  if (process.env.HACKERONE_API_TOKEN) {
+    console.log('[HACKERONE] Credentials set — daily sync at 9 AM PT, or use /h1sync');
+  }
+
   // Startup notification
   if (CHAT_ID) {
     try {
       const stats = getCVEStats();
       const programs = getPrograms(true);
-      let msg = `<b>🛡️ Uber Security Agent v2.1 Online</b>\n\n`;
+      let msg = `<b>🛡️ Uber Security Agent v2.2 Online</b>\n\n`;
       msg += `<b>Model:</b> Claude Opus 4.6\n`;
       msg += `<b>Core Feeds:</b> 7 active\n`;
       msg += `<b>Underground Feeds:</b> 8 active\n`;
@@ -636,8 +700,7 @@ const server = app.listen(PORT, async () => {
       msg += `• Feed poll + bounty match: every 5 min\n`;
       msg += `• Deep analysis: every 15 min\n`;
       msg += `• Daily briefing: 8:00 AM ET\n\n`;
-      msg += `Programs: ${programs.map(p => p.name).join(', ')}\n\n`;
-      msg += `Type /help for commands.`;
+      msg += `\nType /help for commands.`;
       await sendMessage(CHAT_ID, msg);
     } catch (err) {
       console.error('Startup notification failed:', err.message);

@@ -74,6 +74,9 @@ export async function handleCommand(message) {
       case '/submit': await handleSubmit(chatId, args); break;
       case '/payouts': await handlePayouts(chatId); break;
       case '/pipeline': await handlePipeline(chatId, args); break;
+      case '/test': await handleTest(chatId, args); break;
+      case '/evidence': await handleEvidence(chatId, args); break;
+      case '/h1sync': await handleH1Sync(chatId); break;
       case '/chatid': await sendMessage(chatId, `Your chat ID: <code>${chatId}</code>`); break;
       case '/help': await sendMessage(chatId, getHelpMessage()); break;
       default:
@@ -149,6 +152,9 @@ function getHelpMessage() {
 /submit [CVE] [program] — Mark a CVE as submitted to a program
 /payouts — Payout analytics (earned, pending, win rate)
 /pipeline [CVE] [program] — Run full bounty pipeline (research + report)
+/test [CVE] [program] — Run passive validation (version, endpoints, tech, Shodan)
+/evidence [matchId] — View full test evidence and audit log
+/h1sync — Sync programs from HackerOne API
 
 <b>Scanning:</b>
 /scan [domain] — Full security scan
@@ -1079,7 +1085,210 @@ async function handlePipeline(chatId, args) {
       await sendMessage(chatId, '<b>Pipeline completed but produced no output.</b>');
     }
   } catch (err) {
-    await sendMessage(chatId, `<b>Pipeline failed:</b> ${err.message}`);
+    const safeErr = String(err.message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    await sendMessage(chatId, `<b>Pipeline failed:</b> ${safeErr}`);
+  }
+}
+
+async function handleTest(chatId, args) {
+  if (!args) {
+    const { getTopMatches } = await import('./bounty-manager.js');
+    const matches = getTopMatches(5);
+    let usage = 'Usage: /test CVE-2026-XXXX program_id\n\n';
+    usage += 'Runs passive validation: version fingerprinting, endpoint checks, tech confirmation, Shodan lookup, CPE matching.\n\n';
+    if (matches.length > 0) {
+      usage += '<b>Recent matches to test:</b>\n';
+      for (const m of matches) {
+        usage += `<code>/test ${m.cveId} ${m.programId}</code> (score ${m.score})\n`;
+      }
+    }
+    await sendMessage(chatId, usage);
+    return;
+  }
+
+  const parts = args.split(/\s+/);
+  if (parts.length < 2) {
+    await sendMessage(chatId, 'Usage: /test CVE-2026-XXXX program_id');
+    return;
+  }
+
+  const cveId = parts[0].toUpperCase();
+  const programId = parts[1].toLowerCase();
+
+  const { getProgram, getMatchesForProgram } = await import('./bounty-manager.js');
+  const program = getProgram(programId);
+  if (!program) {
+    await sendMessage(chatId, `Program <code>${programId}</code> not found. Use /programs to list all.`);
+    return;
+  }
+
+  await sendMessage(chatId, `<b>🔬 Running passive validation for ${cveId} x ${program.name}...</b>\n<i>Version fingerprint, endpoint check, tech confirmation, Shodan, CPE match...</i>`);
+
+  // Find or build match object
+  let match = getMatchesForProgram(programId, 200).find(m => m.cveId === cveId);
+  if (!match) {
+    const { searchCVE } = await import('./intel.js');
+    const results = await searchCVE(cveId);
+    const cve = results[0] || { id: cveId, cvss: null, severity: 'Unknown', description: '' };
+    match = {
+      id: `m_test_${Date.now()}`,
+      cveId,
+      programId,
+      programName: program.name,
+      score: 0,
+      cve: {
+        cvss: cve.cvss,
+        severity: cve.severity,
+        description: cve.description?.slice(0, 300),
+        weaknesses: cve.weaknesses || [],
+        exploitAvailable: cve.exploitAvailable || false,
+        cisaKEV: cve.cisaKEV || false,
+      },
+      techOverlap: [],
+      cweMatch: [],
+    };
+  }
+
+  try {
+    const { buildResearchPackage } = await import('./bounty-pipeline.js');
+    const { runPassiveValidation } = await import('./bounty-testing.js');
+
+    const researchPackage = await buildResearchPackage(process.env, match, program);
+    const testResult = await runPassiveValidation(match, program, researchPackage);
+
+    const confIcon = testResult.confidenceScore >= 70 ? '🟢' : testResult.confidenceScore >= 50 ? '🟡' : '🔴';
+    let msg = `${confIcon} <b>VALIDATION: ${cveId} x ${esc(program.name)}</b>\n`;
+    msg += `<b>Confidence:</b> ${testResult.confidenceScore}/100 — ${esc(testResult.confidenceLabel)}\n`;
+    msg += `<b>Duration:</b> ${(testResult.duration / 1000).toFixed(1)}s\n\n`;
+
+    msg += `<b>Test Results:</b>\n`;
+    for (const test of testResult.tests) {
+      const icon = test.result === 'pass' ? '✅' : test.result === 'partial' ? '🟡' : test.result === 'skip' ? '⏭' : '❌';
+      msg += `${icon} <b>${esc(test.name)}</b>: ${esc(test.detail?.slice(0, 150))}\n`;
+      if (test.duration) msg += `   <i>${test.duration}ms</i>\n`;
+    }
+
+    msg += `\n<i>Match ID: <code>${esc(testResult.matchId)}</code></i>`;
+    msg += `\n<i>Use /evidence ${esc(testResult.matchId)} for full details</i>`;
+
+    await sendMessage(chatId, msg);
+  } catch (err) {
+    const safeErr = String(err.message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    await sendMessage(chatId, `<b>Validation failed:</b> ${safeErr}`);
+  }
+}
+
+async function handleEvidence(chatId, matchId) {
+  if (!matchId) {
+    const { getTestResults } = await import('./bounty-testing.js');
+    const results = getTestResults(10);
+    if (results.length === 0) {
+      await sendMessage(chatId, 'No test results yet. Use /test CVE-XXXX program to run validation.');
+      return;
+    }
+    let msg = '<b>Recent Test Results:</b>\n\n';
+    for (const r of results) {
+      const icon = r.confidenceScore >= 70 ? '🟢' : r.confidenceScore >= 50 ? '🟡' : '🔴';
+      msg += `${icon} <b>${esc(r.cveId)}</b> → ${esc(r.programId)}\n`;
+      msg += `   Score: ${r.confidenceScore}/100 (${esc(r.confidenceLabel)})\n`;
+      msg += `   <code>/evidence ${esc(r.matchId)}</code>\n\n`;
+    }
+    await sendMessage(chatId, msg);
+    return;
+  }
+
+  const { getTestResultByMatch } = await import('./bounty-testing.js');
+  const results = getTestResultByMatch(matchId.trim());
+
+  if (results.length === 0) {
+    await sendMessage(chatId, `No evidence found for match <code>${esc(matchId.trim())}</code>`);
+    return;
+  }
+
+  const r = results[0]; // Most recent result
+  const confIcon = r.confidenceScore >= 70 ? '🟢' : r.confidenceScore >= 50 ? '🟡' : '🔴';
+  let msg = `${confIcon} <b>EVIDENCE: ${esc(r.cveId)} x ${esc(r.programId)}</b>\n`;
+  msg += `<b>Confidence:</b> ${r.confidenceScore}/100 — ${esc(r.confidenceLabel)}\n`;
+  msg += `<b>Tier:</b> ${r.tier} | <b>Status:</b> ${esc(r.status)}\n`;
+  msg += `<b>Duration:</b> ${(r.duration / 1000).toFixed(1)}s\n\n`;
+
+  for (const test of r.tests) {
+    const icon = test.result === 'pass' ? '✅' : test.result === 'partial' ? '🟡' : test.result === 'skip' ? '⏭' : '❌';
+    msg += `${icon} <b>${esc(test.name)}</b>\n`;
+    msg += `   Result: ${esc(test.result)} | ${test.duration}ms\n`;
+    msg += `   ${esc(test.detail?.slice(0, 200))}\n`;
+
+    // Show key evidence details
+    if (test.evidence) {
+      if (test.evidence.detectedVersions?.length > 0) {
+        msg += `   Versions: ${test.evidence.detectedVersions.map(v => esc(v.version)).join(', ')}\n`;
+      }
+      if (test.evidence.existingPaths?.length > 0) {
+        msg += `   Paths: ${test.evidence.existingPaths.map(p => esc(p.url)).join(', ')}\n`;
+      }
+      if (test.evidence.confirmedTech?.length > 0) {
+        msg += `   Tech: ${test.evidence.confirmedTech.map(t => esc(t.technology)).join(', ')}\n`;
+      }
+      if (test.evidence.lookups?.length > 0) {
+        for (const l of test.evidence.lookups) {
+          msg += `   Shodan ${esc(l.ip)}: ${l.ports.length} ports, ${l.vulns.length} vulns\n`;
+          if (l.vulns.length > 0) msg += `   Known CVEs: ${l.vulns.slice(0, 5).map(v => esc(v)).join(', ')}\n`;
+        }
+      }
+      if (test.evidence.matchedProducts?.length > 0) {
+        msg += `   CPE: ${test.evidence.matchedProducts.map(m => `${esc(m.vendor)}:${esc(m.product)}`).join(', ')}\n`;
+      }
+    }
+    msg += '\n';
+  }
+
+  // Audit log (last 5 entries)
+  if (r.auditLog?.length > 0) {
+    msg += `<b>Audit Log:</b>\n`;
+    for (const entry of r.auditLog.slice(-5)) {
+      msg += `<i>${esc(entry.timestamp?.slice(11, 19))} ${esc(entry.action)}: ${esc(entry.result)}</i>\n`;
+    }
+  }
+
+  await sendMessage(chatId, msg);
+}
+
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function handleH1Sync(chatId) {
+  const { syncHackerOnePrograms, getHackerOneSyncStatus } = await import('./hackerone.js');
+
+  if (!process.env.HACKERONE_API_TOKEN) {
+    await sendMessage(chatId, 'HackerOne API credentials not configured. Set HACKERONE_USERNAME and HACKERONE_API_TOKEN.');
+    return;
+  }
+
+  await sendMessage(chatId, '<b>🔄 Syncing HackerOne programs...</b>\n<i>Fetching bounty-eligible programs with scopes...</i>');
+
+  try {
+    const result = await syncHackerOnePrograms();
+    let msg = '<b>✅ HackerOne Sync Complete</b>\n\n';
+    msg += `📥 <b>Imported:</b> ${result.imported} new programs\n`;
+    msg += `🔄 <b>Updated:</b> ${result.updated} existing\n`;
+    msg += `⏭ <b>Skipped:</b> ${result.skipped} (no bounty scope or built-in)\n`;
+    msg += `📊 <b>Total fetched:</b> ${result.totalPrograms}\n`;
+
+    if (result.errors.length > 0) {
+      msg += `\n⚠️ <b>Errors (${result.errors.length}):</b>\n`;
+      result.errors.slice(0, 5).forEach(e => {
+        const safe = String(e).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        msg += `• ${safe}\n`;
+      });
+    }
+
+    msg += `\nAll imported programs are now in the matching engine.\nUse /programs to see the full list.`;
+    await sendMessage(chatId, msg);
+  } catch (err) {
+    const safe = String(err.message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    await sendMessage(chatId, `<b>❌ H1 sync failed:</b> ${safe}`);
   }
 }
 
