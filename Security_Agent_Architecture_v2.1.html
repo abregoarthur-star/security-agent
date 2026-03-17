@@ -705,13 +705,13 @@ body::before {
 <div class="header">
   <div class="header-left">
     <h1>UBER SECURITY AGENT</h1>
-    <div class="subtitle">Master System Architecture &mdash; 15 Intelligence Feeds &middot; Opus 4.6 Analysis &middot; Bounty Pipeline &middot; Passive Validation &middot; 20 Telegram Commands &middot; Brain Integration</div>
+    <div class="subtitle">Master System Architecture &mdash; 15 Intelligence Feeds &middot; Opus 4.6 Analysis &middot; Bounty Pipeline &middot; 23 Telegram Commands &middot; Brain Integration</div>
   </div>
   <div class="header-right">
     <span>Runtime:</span> <strong>Node.js 20+ &middot; Express (ESM) &middot; Railway</strong><br>
     <span>AI:</span> <strong>Claude Opus 4.6 &middot; Threat Analysis + Exploit Intelligence</strong><br>
     <span>Delivery:</span> <strong>Telegram Bot &middot; REST API</strong><br>
-    <span>Updated:</span> <strong>March 16, 2026</strong>
+    <span>Updated:</span> <strong>March 15, 2026</strong>
   </div>
 </div>
 
@@ -986,46 +986,18 @@ body::before {
       </div>
       <div class="job-runner">src/bounty-pipeline.js &middot; claude-opus-4-6 &middot; Submission-ready output</div>
       <div class="job-body">
-        <div class="job-section-title">Pipeline (Score &ge; 80)</div>
+        <div class="job-section-title">Pipeline (Score &ge; 70)</div>
         <div class="job-item">1. Fetch NVD disclosure details</div>
         <div class="job-item">2. Search for PoCs (Sploitus + GitHub)</div>
         <div class="job-item">3. Run passive recon on target program</div>
         <div class="job-item">4. Assess exploitability from all data</div>
-        <div class="job-item">5. <strong>Passive validation (5 tests)</strong></div>
-        <div class="job-item">6. Draft evidence-backed bounty report</div>
+        <div class="job-item">5. Draft submission-ready bounty report</div>
         <div class="job-section-title">Delivery</div>
-        <div class="job-item">Research + validation evidence to Telegram</div>
+        <div class="job-item">Research package + report to Telegram</div>
         <div class="job-item">Pushed to Brain for review/edit/approve</div>
         <div class="badges">
           <span class="badge gold">Passive Recon Only</span>
           <span class="badge green">Brain Review</span>
-          <span class="badge teal">Evidence-Backed</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="job-box teal">
-      <div class="job-header">
-        <span class="job-icon">&#x1F52C;</span>
-        <span class="job-title">Passive Validation Engine</span>
-      </div>
-      <div class="job-runner">src/bounty-testing.js &middot; Zero risk &middot; Confidence scoring 0-100</div>
-      <div class="job-body">
-        <div class="job-section-title">Phase 1 &mdash; 5 Passive Tests (LIVE)</div>
-        <div class="job-item">1. Version fingerprinting &mdash; HTTP headers + meta generators (+30pts)</div>
-        <div class="job-item">2. Endpoint existence &mdash; HEAD requests for CVE paths (+20pts)</div>
-        <div class="job-item">3. Technology confirmation &mdash; Tech-specific path probes (+15pts)</div>
-        <div class="job-item">4. Shodan InternetDB &mdash; Free passive lookup, no API key (+10pts)</div>
-        <div class="job-item">5. CPE match verification &mdash; NVD CPE vs detected stack (+10pts)</div>
-        <div class="job-section-title">Phase 2 &mdash; Nuclei Detection (Code Ready)</div>
-        <div class="job-item">Info-severity templates only (+15pts)</div>
-        <div class="job-item">Scope-validated &middot; Rate-limited 5 req/s &middot; safeHarbor required</div>
-        <div class="job-section-title">Confidence Labels</div>
-        <div class="job-item">90+ confirmed &middot; 70-89 likely &middot; 50-69 uncertain &middot; &lt;50 unlikely</div>
-        <div class="badges">
-          <span class="badge teal">Read-Only</span>
-          <span class="badge blue">No Payloads</span>
-          <span class="badge green">Audit Logged</span>
         </div>
       </div>
     </div>
@@ -1392,7 +1364,7 @@ body::before {
       <div class="agent-col">
         <div class="agent-col-title">Bounty Commands</div>
 
-        <div class="task-group-title">Bounty Operations (8)</div>
+        <div class="task-group-title">Bounty Operations (6)</div>
         <div class="task-item">
           <span class="task-num" style="color:var(--gold)">/bounty</span>
           <span class="task-detail">&mdash; Bounty opportunities overview</span>
@@ -1416,14 +1388,6 @@ body::before {
         <div class="task-item">
           <span class="task-num" style="color:var(--gold)">/pipeline</span>
           <span class="task-detail">&mdash; Run bounty pipeline on match</span>
-        </div>
-        <div class="task-item">
-          <span class="task-num" style="color:var(--teal)">/test</span>
-          <span class="task-detail">&mdash; Passive validation (5 tests)</span>
-        </div>
-        <div class="task-item">
-          <span class="task-num" style="color:var(--teal)">/evidence</span>
-          <span class="task-detail">&mdash; View test evidence + audit log</span>
         </div>
 
         <div class="task-group-title">Utility (2)</div>
@@ -1477,7 +1441,7 @@ body::before {
 <hr class="divider-thick">
 <div class="section">
   <div class="section-header">PART 7 &mdash; API ROUTE MAP</div>
-  <div class="section-sub">Express REST API &middot; x-api-key Auth &middot; Brain Integration &middot; 12 Endpoints</div>
+  <div class="section-sub">Express REST API &middot; x-api-key Auth &middot; Brain Integration &middot; 10 Endpoints</div>
 
   <div class="agent-panel">
     <div class="agent-panel-header purple-grad">
@@ -1555,18 +1519,6 @@ body::before {
           <span class="task-num" style="color:var(--blue)">GET</span>
           <span class="task-name">/bounty/submissions</span>
           <span class="task-detail">&mdash; Submissions + payout stats</span>
-        </div>
-
-        <div class="task-group-title">Validation (API Key Required)</div>
-        <div class="task-item">
-          <span class="task-num" style="color:var(--blue)">GET</span>
-          <span class="task-name">/bounty/test/results</span>
-          <span class="task-detail">&mdash; All validation test results</span>
-        </div>
-        <div class="task-item">
-          <span class="task-num" style="color:var(--blue)">GET</span>
-          <span class="task-name">/bounty/test/:matchId</span>
-          <span class="task-detail">&mdash; Run validation for a match</span>
         </div>
 
         <div class="task-group-title">Authentication</div>
@@ -1879,7 +1831,7 @@ body::before {
     <div class="legend-item"><div class="legend-dot teal"></div> Scanning & Infra</div>
     <div class="legend-item"><div class="legend-dot orange"></div> Alerts & Pipeline</div>
   </div>
-  <div class="legend-right">UBER SECURITY AGENT &middot; v2.2 &middot; 2026</div>
+  <div class="legend-right">UBER SECURITY AGENT &middot; v2.1 &middot; 2026</div>
 </div>
 
 </div><!-- /wrapper -->
