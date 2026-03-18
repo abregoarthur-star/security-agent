@@ -15,7 +15,12 @@
  */
 
 import express from 'express';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import cron from 'node-cron';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { sendMessage, handleCommand } from './telegram.js';
 import { pollCVEFeeds, getCVEStats, searchCVE, getRecentCritical, getBountyRelevantCVEs, getRecentExploits, getSecurityNews, getFeedStatus } from './intel.js';
 import { pollUndergroundFeeds, getUndergroundIntel, getNewPOCs, getExploitedInWild, getUndergroundFeedStatus } from './underground.js';
@@ -58,6 +63,13 @@ app.get('/health', (req, res) => {
     lastPoll: stats.lastPoll,
     feeds: getFeedStatus(),
   });
+});
+
+// Architecture doc (public, no auth)
+app.get('/architecture', (req, res) => {
+  const archPath = path.join(__dirname, '../ARCHITECTURE.html');
+  if (fs.existsSync(archPath)) res.sendFile(archPath);
+  else res.status(404).json({ error: 'Architecture doc not found' });
 });
 
 // ─── Telegram Webhook ───────────────────────────────────
