@@ -933,7 +933,7 @@ Respond in JSON:
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-6',
+        model: 'claude-sonnet-4-20250514',
         max_tokens: 1024,
         system: 'You are an expert bug bounty hunter and security researcher. You analyze vulnerabilities for authorized bounty programs. Be direct, actionable, and strategic.',
         messages: [{ role: 'user', content: prompt }],

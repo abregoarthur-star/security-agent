@@ -79,7 +79,7 @@ export async function runAnalysis() {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-opus-4-6',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
       system: `You are an elite cybersecurity threat analyst and bug bounty strategist running an autonomous security intelligence operation. Your analysis directly drives revenue through:
 
@@ -157,7 +157,7 @@ ${newsContext || 'No recent news.'}`,
     latestAnalysis = {
       ...parsed,
       timestamp: new Date().toISOString(),
-      model: 'claude-opus-4-6',
+      model: 'claude-sonnet-4-20250514',
       inputTokens: result.usage?.input_tokens,
       outputTokens: result.usage?.output_tokens,
     };

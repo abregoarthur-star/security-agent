@@ -6,9 +6,35 @@
 
 const TELEGRAM_API = 'https://api.telegram.org/bot';
 
+// ─── Throttle: max 5 alert messages per hour ───
+const MAX_ALERTS_PER_HOUR = 5;
+let _alertCount = 0;
+let _alertWindowStart = Date.now();
+
+function _checkThrottle() {
+  const now = Date.now();
+  if (now - _alertWindowStart > 3600_000) {
+    _alertCount = 0;
+    _alertWindowStart = now;
+  }
+  if (_alertCount >= MAX_ALERTS_PER_HOUR) return false;
+  _alertCount++;
+  return true;
+}
+
+/**
+ * Send a Telegram message. Set options.alert = true for cron-generated alerts
+ * (subject to throttle). Commands and manual triggers bypass throttle.
+ */
 export async function sendMessage(chatId, text, options = {}) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN not set');
+
+  // Throttle cron-generated alerts (commands + daily briefing bypass)
+  if (options.alert && !_checkThrottle()) {
+    console.log(`[TELEGRAM] Throttled — ${_alertCount}/${MAX_ALERTS_PER_HOUR} alerts this hour`);
+    return { ok: true, throttled: true };
+  }
 
   // Telegram max message length is 4096
   if (text.length > 4000) {
@@ -21,7 +47,6 @@ export async function sendMessage(chatId, text, options = {}) {
     text,
     parse_mode: 'HTML',
     disable_web_page_preview: true,
-    ...options,
   };
 
   const res = await fetch(url, {
@@ -36,6 +61,11 @@ export async function sendMessage(chatId, text, options = {}) {
   }
 
   return res.json();
+}
+
+/** Get current throttle status */
+export function getThrottleStatus() {
+  return { alertsSent: _alertCount, max: MAX_ALERTS_PER_HOUR, windowStart: new Date(_alertWindowStart).toISOString() };
 }
 
 export async function setWebhook(webhookUrl) {

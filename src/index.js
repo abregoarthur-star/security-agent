@@ -3,9 +3,10 @@
  *
  * Maximum coverage, maximum speed. This agent makes money.
  *
- * 7 intelligence feeds polled every 5 minutes.
- * Opus 4.6 deep analysis every 15 minutes.
+ * 15 intelligence feeds polled every 5 minutes.
+ * Sonnet analysis every 60 minutes (Opus reserved for bounty reports only).
  * Daily security briefing at 8 AM ET.
+ * Telegram throttled: max 5 alerts/hour.
  *
  * Revenue model:
  * 1. Bug bounties — first-to-find advantage via fast CVE → exploit correlation
@@ -41,9 +42,9 @@ app.get('/', (req, res) => {
   res.json({
     status: 'ok',
     agent: 'uber-security-agent',
-    model: 'claude-opus-4-6',
+    model: 'claude-sonnet-4 (opus for bounty reports only)',
     feeds: 15,
-    version: '2.2.0',
+    version: '2.3.0',
   });
 });
 
@@ -258,22 +259,21 @@ cron.schedule('*/5 * * * *', async () => {
       pollUndergroundFeeds(),
     ]);
 
-    // Alert on new critical CVEs — batch into one message
-    if (results.newCritical.length > 0 && CHAT_ID) {
-      const criticals = results.newCritical.slice(0, 5);
-      let msg = `<b>🔴 ${criticals.length} New Critical CVE${criticals.length > 1 ? 's' : ''}</b>\n`;
-      for (const cve of criticals) {
+    // Alert on new critical CVEs — batch into one message (critical only, not high)
+    const criticals = results.newCritical.filter(c => c.severity === 'CRITICAL' || (c.cvss && c.cvss >= 9.0));
+    if (criticals.length > 0 && CHAT_ID) {
+      const top = criticals.slice(0, 3);
+      let msg = `<b>🔴 ${top.length} New Critical CVE${top.length > 1 ? 's' : ''}</b>\n`;
+      for (const cve of top) {
         msg += `\n• <b>${esc(cve.id)}</b> (CVSS ${cve.cvss || 'N/A'})\n  ${esc((cve.description || '').slice(0, 120))}`;
       }
-      await sendMessage(CHAT_ID, msg);
+      await sendMessage(CHAT_ID, msg, { alert: true });
     }
 
-    // Alert on new PoC exploit repos — only top 2, these are high-signal
+    // Alert on new PoC exploit repos — only top 1, high-signal only
     if (ugResults.newPocs?.length > 0 && CHAT_ID) {
-      for (const poc of ugResults.newPocs.slice(0, 2)) {
-        const msg = formatPoCAlert(poc);
-        await sendMessage(CHAT_ID, msg);
-      }
+      const msg = formatPoCAlert(ugResults.newPocs[0]);
+      await sendMessage(CHAT_ID, msg, { alert: true });
     }
 
     // Skip individual exploit alerts — covered by bounty matching below
@@ -287,17 +287,17 @@ cron.schedule('*/5 * * * *', async () => {
     try {
       const matchResults = matchCVEsToPrograms();
       if (matchResults.newMatches.length > 0 && CHAT_ID) {
-        // Only alert on high-scoring matches (>= 50), top 1 per cycle
-        const alertMatches = matchResults.newMatches.filter(m => m.score >= 50).slice(0, 1);
+        // Only alert on high-scoring matches (>= 70), top 1 per cycle
+        const alertMatches = matchResults.newMatches.filter(m => m.score >= 70).slice(0, 1);
         for (const match of alertMatches) {
-          await sendMessage(CHAT_ID, formatBountyMatch(match));
+          await sendMessage(CHAT_ID, formatBountyMatch(match), { alert: true });
 
-          // Opus analysis + pipeline for high-scoring matches (>= 80)
-          if (match.score >= 80) {
+          // Sonnet analysis + pipeline for high-scoring matches (>= 85)
+          if (match.score >= 85) {
             try {
               const analysis = await analyzeMatch(match);
               if (analysis) {
-                await sendMessage(CHAT_ID, formatMatchAnalysis(match, analysis));
+                await sendMessage(CHAT_ID, formatMatchAnalysis(match, analysis), { alert: true });
               }
             } catch (analysisErr) {
               console.error(`[BOUNTY] Analysis failed for ${match.cveId}:`, analysisErr.message);
@@ -313,7 +313,7 @@ cron.schedule('*/5 * * * *', async () => {
                     ? pipeline.telegramMessage
                     : [pipeline.telegramMessage];
                   for (const msg of messages) {
-                    await sendMessage(CHAT_ID, msg);
+                    await sendMessage(CHAT_ID, msg, { alert: true });
                   }
                 }
               }
@@ -330,34 +330,34 @@ cron.schedule('*/5 * * * *', async () => {
   } catch (err) {
     console.error('[CRON] Feed poll failed:', err.message);
     if (CHAT_ID) {
-      try { await sendMessage(CHAT_ID, `<b>⚠️ Feed poll error:</b> ${err.message}`); } catch {}
+      try { await sendMessage(CHAT_ID, `<b>⚠️ Feed poll error:</b> ${err.message}`, { alert: true }); } catch {}
     }
   }
 });
 
-// Every 15 minutes: Opus 4.6 deep analysis — the brain of the operation
-cron.schedule('*/15 * * * *', async () => {
-  console.log('[CRON] Running Opus 4.6 threat analysis...');
+// Every 60 minutes: Sonnet threat analysis (was 15min Opus — reduced for cost)
+cron.schedule('0 * * * *', async () => {
+  console.log('[CRON] Running Sonnet threat analysis...');
   try {
     const analysis = await runAnalysis();
 
     if (analysis && CHAT_ID) {
       // Send analysis digest (combined — no separate bounty alert)
       const msg = formatAnalysisDigest(analysis);
-      await sendMessage(CHAT_ID, msg);
+      await sendMessage(CHAT_ID, msg, { alert: true });
     }
 
-    // Deep exploit analysis on top 1 most critical new CVE (not 3)
+    // Deep exploit analysis on top 1 most critical new CVE
     const critical = getRecentCritical();
-    const top1 = critical.slice(0, 1);
+    const top1 = critical.filter(c => c.severity === 'CRITICAL' || (c.cvss && c.cvss >= 9.0)).slice(0, 1);
     if (top1.length > 0 && CHAT_ID) {
-      console.log(`[CRON] Running deep exploit analysis on top critical CVE...`);
+      console.log(`[CRON] Running exploit analysis on top critical CVE...`);
       for (const cve of top1) {
         try {
           const exploitAnalysis = await analyzeExploit(cve);
           if (exploitAnalysis && !exploitAnalysis.error) {
             const msg = formatExploitAnalysisAlert(exploitAnalysis);
-            await sendMessage(CHAT_ID, msg);
+            await sendMessage(CHAT_ID, msg, { alert: true });
           }
         } catch (analysisErr) {
           console.error(`[CRON] Exploit analysis failed for ${cve.id}:`, analysisErr.message);
@@ -365,7 +365,7 @@ cron.schedule('*/15 * * * *', async () => {
       }
     }
 
-    console.log('[CRON] Opus 4.6 analysis complete');
+    console.log('[CRON] Sonnet analysis complete');
   } catch (err) {
     console.error('[CRON] Analysis failed:', err.message);
   }
