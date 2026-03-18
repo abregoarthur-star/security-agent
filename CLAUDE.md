@@ -241,6 +241,7 @@ security-agent/
 ├── Dockerfile
 ├── CLAUDE.md          # This file
 ├── AGENTS.md          # Parallel build coordination
+├── ARCHITECTURE.html  # Master architecture doc (unified design system, red accent)
 ├── .gitignore
 ├── .env.example
 └── src/
@@ -264,6 +265,7 @@ All routes behind `BRAIN_API_KEY` auth:
 | Method | Route | Description |
 |--------|-------|-------------|
 | `GET` | `/health` | Health check (no auth) |
+| `GET` | `/architecture` | Serves architecture doc (public, no auth) |
 | `GET` | `/intel/security` | Full intel: stats, CVEs, analysis, bounty matches, programs, submissions |
 | `GET` | `/intel/cve?q=` | CVE search (local + NVD fallback) |
 | `GET` | `/intel/analysis` | Latest analysis + 24h history |
@@ -309,6 +311,7 @@ The bounty pipeline pushes reports to `POST {BRAIN_API_URL}/bounty/reports` with
 - **Passive validation** — Bounty pipeline validates targets with read-only HTTP requests + public data (Shodan InternetDB). No payloads, no exploitation. Evidence-backed reports get paid.
 - **Phased testing approach** — Phase 1 (passive) is live. Phase 2 (Nuclei detection) code-ready. Phase 3-4 (sandbox, active) are future.
 - **Same stack as Brain** — Node.js + Express. Easy to maintain, deploy, and integrate.
+- **Architecture doc** — Served at `/architecture` route (public, no auth). Also mirrored on GitHub Pages: `https://abregoarthur-star.github.io/agent-portfolio/`
 
 ## Development
 
