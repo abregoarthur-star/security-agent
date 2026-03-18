@@ -1,0 +1,1839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uber Security Agent — Master System Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;500;600;700&family=Barlow:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+/* ── RESET & BASE ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #080808;
+  --surface: #0e0e10;
+  --surface-2: #151518;
+  --surface-3: #1a1a1f;
+  --border: #222228;
+  --border-light: #2a2a32;
+  --text: #e8e8ec;
+  --text-dim: #888892;
+  --text-muted: #555560;
+
+  --blue: #4488FF;
+  --blue-dim: #335599;
+  --gold: #FFD700;
+  --gold-dim: #99820a;
+  --green: #44BB44;
+  --green-dim: #2a7a2a;
+  --orange: #FF6600;
+  --orange-dim: #994400;
+  --red: #EE4444;
+  --red-dim: #992222;
+  --teal: #00BBAA;
+  --teal-dim: #007766;
+  --purple: #9933FF;
+  --purple-dim: #6622aa;
+  --cyan: #00CCEE;
+  --cyan-dim: #008899;
+
+  --font-display: 'Bebas Neue', sans-serif;
+  --font-label: 'Barlow Condensed', sans-serif;
+  --font-body: 'Barlow', sans-serif;
+  --font-mono: 'Share Tech Mono', monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  min-width: 960px;
+  padding: 0 0 40px;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg width='4' height='4' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='1' height='1' fill='%23ffffff' opacity='.02'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+}
+
+.wrapper {
+  position: relative;
+  z-index: 1;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ── HEADER ── */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 32px 0 24px;
+  border-bottom: 2px solid var(--red);
+}
+
+.header-left h1 {
+  font-family: var(--font-display);
+  font-size: 48px;
+  letter-spacing: 3px;
+  color: var(--red);
+  line-height: 1;
+}
+
+.header-left .subtitle {
+  font-family: var(--font-label);
+  font-size: 16px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  letter-spacing: 0.5px;
+}
+
+.header-right {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.8;
+}
+
+.header-right span { color: var(--text-muted); }
+.header-right strong { color: var(--text); font-weight: 400; }
+
+/* ── STATS BAR ── */
+.stats-bar {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 8px;
+  margin: 20px 0 32px;
+}
+
+.stat-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 10px;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+
+.stat-block:hover { border-color: var(--red); }
+
+.stat-num {
+  font-family: var(--font-display);
+  font-size: 32px;
+  color: var(--red);
+  line-height: 1;
+}
+
+.stat-num.gold { color: var(--gold); }
+.stat-num.blue { color: var(--blue); }
+.stat-num.teal { color: var(--teal); }
+.stat-num.orange { color: var(--orange); }
+.stat-num.purple { color: var(--purple); }
+.stat-num.red { color: var(--red); }
+.stat-num.cyan { color: var(--cyan); }
+.stat-num.green { color: var(--green); }
+
+.stat-label {
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 4px;
+}
+
+/* ── SECTION ── */
+.section { margin-top: 12px; }
+
+.section-header {
+  font-family: var(--font-display);
+  font-size: 28px;
+  letter-spacing: 2px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.section-sub {
+  font-family: var(--font-label);
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+  letter-spacing: 0.5px;
+}
+
+.divider-thick {
+  border: none;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--border-light) 15%, var(--border-light) 85%, transparent);
+  margin: 40px 0 20px;
+}
+
+/* ── TRIGGER BOX ── */
+.trigger-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 28px;
+  text-align: center;
+  max-width: 620px;
+  margin: 0 auto 8px;
+}
+
+.trigger-box h3 {
+  font-family: var(--font-label);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.trigger-box p {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* ── ARROWS ── */
+.arrow-down {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.arrow-down .line {
+  width: 2px;
+  height: 28px;
+  background: linear-gradient(180deg, var(--border-light), var(--text-muted));
+}
+
+.arrow-down .triangle {
+  width: 0; height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 9px solid var(--text-muted);
+}
+
+.arrow-split {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.arrow-split .stem { width: 2px; height: 20px; background: var(--text-muted); }
+.arrow-split .bar { position: relative; height: 2px; background: var(--text-muted); width: 80%; }
+.arrow-split .legs { display: flex; justify-content: space-between; width: 80%; }
+.arrow-split .leg { display: flex; flex-direction: column; align-items: center; }
+.arrow-split .leg .line { width: 2px; height: 20px; background: var(--text-muted); }
+.arrow-split .leg .triangle { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid var(--text-muted); }
+
+.arrow-merge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.arrow-merge .legs { display: flex; justify-content: space-between; width: 80%; }
+.arrow-merge .leg { display: flex; flex-direction: column; align-items: center; }
+.arrow-merge .leg .line { width: 2px; height: 20px; background: var(--text-muted); }
+.arrow-merge .bar { height: 2px; background: var(--text-muted); width: 80%; }
+.arrow-merge .stem { width: 2px; height: 20px; background: linear-gradient(180deg, var(--text-muted), var(--border-light)); }
+.arrow-merge .triangle { width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 9px solid var(--text-muted); }
+
+/* ── JOB CARDS ── */
+.jobs-2col { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.jobs-3col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.jobs-4col { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+
+.job-box {
+  background: var(--surface);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.job-box.blue { border-color: var(--blue-dim); }
+.job-box.teal { border-color: var(--teal-dim); }
+.job-box.red { border-color: var(--red-dim); }
+.job-box.gold { border-color: var(--gold-dim); }
+.job-box.green { border-color: var(--green-dim); }
+.job-box.purple { border-color: var(--purple-dim); }
+.job-box.orange { border-color: var(--orange-dim); }
+
+.job-header {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.job-box.blue .job-header { background: linear-gradient(135deg, rgba(68,136,255,.15), rgba(68,136,255,.05)); }
+.job-box.teal .job-header { background: linear-gradient(135deg, rgba(0,187,170,.15), rgba(0,187,170,.05)); }
+.job-box.red .job-header { background: linear-gradient(135deg, rgba(238,68,68,.15), rgba(238,68,68,.05)); }
+.job-box.gold .job-header { background: linear-gradient(135deg, rgba(255,215,0,.15), rgba(255,215,0,.05)); }
+.job-box.green .job-header { background: linear-gradient(135deg, rgba(68,187,68,.15), rgba(68,187,68,.05)); }
+.job-box.purple .job-header { background: linear-gradient(135deg, rgba(153,51,255,.15), rgba(153,51,255,.05)); }
+.job-box.orange .job-header { background: linear-gradient(135deg, rgba(255,102,0,.15), rgba(255,102,0,.05)); }
+
+.job-icon { font-size: 22px; line-height: 1; }
+
+.job-title {
+  font-family: var(--font-label);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.job-box.blue .job-title { color: var(--blue); }
+.job-box.teal .job-title { color: var(--teal); }
+.job-box.red .job-title { color: var(--red); }
+.job-box.gold .job-title { color: var(--gold); }
+.job-box.green .job-title { color: var(--green); }
+.job-box.purple .job-title { color: var(--purple); }
+.job-box.orange .job-title { color: var(--orange); }
+
+.job-runner {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 16px;
+  margin-top: -6px;
+  margin-bottom: 4px;
+}
+
+.job-body { padding: 10px 16px 16px; }
+
+.job-section-title {
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+  margin: 10px 0 6px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+}
+
+.job-section-title:first-child { margin-top: 0; }
+
+.job-item {
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 3px 0 3px 14px;
+  position: relative;
+}
+
+.job-item::before {
+  content: '>';
+  position: absolute;
+  left: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.job-item code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* ── BADGES ── */
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.badge {
+  font-family: var(--font-label);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.badge.gold { background: rgba(255,215,0,.12); color: var(--gold); border: 1px solid rgba(255,215,0,.25); }
+.badge.red { background: rgba(238,68,68,.12); color: var(--red); border: 1px solid rgba(238,68,68,.25); }
+.badge.green { background: rgba(68,187,68,.12); color: var(--green); border: 1px solid rgba(68,187,68,.25); }
+.badge.blue { background: rgba(68,136,255,.12); color: var(--blue); border: 1px solid rgba(68,136,255,.25); }
+.badge.teal { background: rgba(0,187,170,.12); color: var(--teal); border: 1px solid rgba(0,187,170,.25); }
+.badge.purple { background: rgba(153,51,255,.12); color: var(--purple); border: 1px solid rgba(153,51,255,.25); }
+.badge.orange { background: rgba(255,102,0,.12); color: var(--orange); border: 1px solid rgba(255,102,0,.25); }
+.badge.gray { background: rgba(136,136,146,.12); color: var(--text-dim); border: 1px solid rgba(136,136,146,.25); }
+
+/* ── CENTERED BOX ── */
+.centered-box {
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+/* ── AGENT PANEL ── */
+.agent-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 16px;
+}
+
+.agent-panel-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.agent-panel-header.green-grad { background: linear-gradient(135deg, rgba(68,187,68,.12), rgba(0,187,170,.08)); }
+.agent-panel-header.blue-grad { background: linear-gradient(135deg, rgba(68,136,255,.12), rgba(153,51,255,.08)); }
+.agent-panel-header.red-grad { background: linear-gradient(135deg, rgba(238,68,68,.12), rgba(255,102,0,.08)); }
+.agent-panel-header.gold-grad { background: linear-gradient(135deg, rgba(255,215,0,.12), rgba(255,102,0,.08)); }
+.agent-panel-header.purple-grad { background: linear-gradient(135deg, rgba(153,51,255,.12), rgba(68,136,255,.08)); }
+
+.agent-panel-header .icon { font-size: 26px; }
+
+.agent-panel-header h3 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 2px;
+  color: var(--red);
+}
+
+.agent-panel-header h3.blue { color: var(--blue); }
+.agent-panel-header h3.red { color: var(--red); }
+.agent-panel-header h3.gold { color: var(--gold); }
+.agent-panel-header h3.purple { color: var(--purple); }
+.agent-panel-header h3.green { color: var(--green); }
+.agent-panel-header h3.orange { color: var(--orange); }
+
+.agent-panel-header .sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.agent-panel-body {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr 1fr;
+  gap: 0;
+}
+
+.agent-panel-body.two-col {
+  grid-template-columns: 1fr 1fr;
+}
+
+.agent-col {
+  padding: 16px;
+  border-right: 1px solid var(--border);
+}
+
+.agent-col:last-child { border-right: none; }
+
+.agent-col-title {
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.agent-card h4 {
+  font-family: var(--font-label);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.agent-card p {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.agent-card .badges { margin-top: 8px; }
+
+/* Task items */
+.task-group-title {
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin: 12px 0 6px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+}
+
+.task-group-title:first-child { margin-top: 0; }
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-bottom: 1px solid rgba(34,34,40,.6);
+}
+
+.task-item:last-child { border-bottom: none; }
+
+.task-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 18px;
+}
+
+.task-name {
+  font-weight: 500;
+  color: var(--text);
+  font-family: var(--font-label);
+}
+
+.task-file {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.task-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── MONITOR GRID ── */
+.monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.monitor-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 16px;
+  text-align: center;
+}
+
+.monitor-card .icon { font-size: 28px; margin-bottom: 8px; }
+
+.monitor-card .name {
+  font-family: var(--font-label);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.monitor-card .schedule {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.monitor-card .desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+/* ── ENV BAR ── */
+.env-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-top: 32px;
+}
+
+.env-bar h3 {
+  font-family: var(--font-label);
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.env-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.env-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  color: var(--text-dim);
+}
+
+.env-chip .key { color: var(--teal); font-weight: 600; }
+.env-chip .val { color: var(--text-muted); }
+
+/* ── LEGEND ── */
+.legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 28px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.legend-items { display: flex; gap: 20px; flex-wrap: wrap; }
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+.legend-dot.green { background: var(--green); box-shadow: 0 0 6px rgba(68,187,68,.4); }
+.legend-dot.orange { background: var(--orange); box-shadow: 0 0 6px rgba(255,102,0,.4); }
+.legend-dot.red { background: var(--red); box-shadow: 0 0 6px rgba(238,68,68,.4); }
+.legend-dot.blue { background: var(--blue); box-shadow: 0 0 6px rgba(68,136,255,.4); }
+.legend-dot.purple { background: var(--purple); box-shadow: 0 0 6px rgba(153,51,255,.4); }
+.legend-dot.gold { background: var(--gold); box-shadow: 0 0 6px rgba(255,215,0,.4); }
+.legend-dot.teal { background: var(--teal); box-shadow: 0 0 6px rgba(0,187,170,.4); }
+
+.legend-right {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── STEP LABEL ── */
+.step-label {
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+/* ── FLOW LINE ── */
+.flow-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 2px 0;
+}
+
+/* ── FILE TREE ── */
+.file-tree {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.8;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.file-tree .dir { color: var(--blue); font-weight: 600; }
+.file-tree .file { color: var(--text-dim); }
+.file-tree .comment { color: var(--text-muted); }
+
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+<!-- ════════════════════════════════════════════════════════
+     HEADER
+     ════════════════════════════════════════════════════════ -->
+<div class="header">
+  <div class="header-left">
+    <h1>UBER SECURITY AGENT</h1>
+    <div class="subtitle">Master System Architecture &mdash; 15 Intelligence Feeds &middot; Opus 4.6 Analysis &middot; Bounty Pipeline &middot; 23 Telegram Commands &middot; Brain Integration</div>
+  </div>
+  <div class="header-right">
+    <span>Runtime:</span> <strong>Node.js 20+ &middot; Express (ESM) &middot; Railway</strong><br>
+    <span>AI:</span> <strong>Claude Opus 4.6 &middot; Threat Analysis + Exploit Intelligence</strong><br>
+    <span>Delivery:</span> <strong>Telegram Bot &middot; REST API</strong><br>
+    <span>Updated:</span> <strong>March 15, 2026</strong>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     STATS BAR
+     ════════════════════════════════════════════════════════ -->
+<div class="stats-bar">
+  <div class="stat-block">
+    <div class="stat-num red">15</div>
+    <div class="stat-label">Intel Feeds</div>
+  </div>
+  <div class="stat-block">
+    <div class="stat-num blue">3</div>
+    <div class="stat-label">Opus 4.6<br>Engines</div>
+  </div>
+  <div class="stat-block">
+    <div class="stat-num gold">15</div>
+    <div class="stat-label">Bounty<br>Programs</div>
+  </div>
+  <div class="stat-block">
+    <div class="stat-num green">23</div>
+    <div class="stat-label">Telegram<br>Commands</div>
+  </div>
+  <div class="stat-block">
+    <div class="stat-num orange">3</div>
+    <div class="stat-label">Cron Jobs</div>
+  </div>
+  <div class="stat-block">
+    <div class="stat-num purple">10</div>
+    <div class="stat-label">API<br>Endpoints</div>
+  </div>
+  <div class="stat-block">
+    <div class="stat-num teal">10</div>
+    <div class="stat-label">Source<br>Files</div>
+  </div>
+  <div class="stat-block">
+    <div class="stat-num cyan">3</div>
+    <div class="stat-label">Revenue<br>Streams</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PART 1 — INTELLIGENCE PIPELINE
+     ════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">PART 1 &mdash; INTELLIGENCE FEED PIPELINE</div>
+  <div class="section-sub">15 Feeds &middot; 5-Minute Polling &middot; Parallel Fetch &middot; allSettled Resilience &middot; Speed Is Money</div>
+
+  <!-- Step 1: Cron Trigger -->
+  <div class="step-label">Step 1 &mdash; Cron Trigger (Every 5 Minutes)</div>
+  <div class="trigger-box">
+    <h3>Feed Polling Cron &mdash; <code>*/5 * * * *</code></h3>
+    <p>index.js &middot; Polls all 15 feeds in parallel via Promise.allSettled &middot; Resilient to individual feed failures</p>
+    <div class="badges" style="justify-content:center;">
+      <span class="badge red">7 Core Feeds</span>
+      <span class="badge purple">8 Underground Feeds</span>
+      <span class="badge gold">Bounty Matching After</span>
+    </div>
+  </div>
+
+  <div class="arrow-split">
+    <div class="stem"></div>
+    <div class="bar"></div>
+    <div class="legs">
+      <div class="leg"><div class="line"></div><div class="triangle"></div></div>
+      <div class="leg"><div class="line"></div><div class="triangle"></div></div>
+    </div>
+  </div>
+
+  <!-- Step 2: Feed Groups -->
+  <div class="step-label">Step 2 &mdash; Parallel Feed Polling</div>
+  <div class="jobs-2col">
+
+    <div class="job-box red">
+      <div class="job-header">
+        <span class="job-icon">&#x1F6E1;&#xFE0F;</span>
+        <span class="job-title">Core Feeds (7)</span>
+      </div>
+      <div class="job-runner">src/intel.js &middot; pollCVEFeeds() &middot; In-memory CVE store</div>
+      <div class="job-body">
+        <div class="job-section-title">Vulnerability Databases (4)</div>
+        <div class="job-item"><b>NVD</b> &mdash; 337K+ CVEs, CVSS scores, CWE, CPE, attack vectors</div>
+        <div class="job-item"><b>CISA KEV</b> &mdash; actively exploited vulns in the wild</div>
+        <div class="job-item"><b>OSV.dev</b> &mdash; npm, PyPI, Go, Rust, Maven, NuGet, Ruby</div>
+        <div class="job-item"><b>GitHub Advisories</b> &mdash; reviewed advisories via GraphQL API</div>
+        <div class="job-section-title">Exploit & News Feeds (3)</div>
+        <div class="job-item"><b>Exploit-DB</b> &mdash; new exploits as they drop (RSS)</div>
+        <div class="job-item"><b>Packet Storm</b> &mdash; exploit + advisory feed (RSS)</div>
+        <div class="job-item"><b>The Hacker News</b> &mdash; security news for threat context (RSS)</div>
+        <div class="badges">
+          <span class="badge red">All Free</span>
+          <span class="badge green">allSettled</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="job-box purple">
+      <div class="job-header">
+        <span class="job-icon">&#x1F575;&#xFE0F;</span>
+        <span class="job-title">Underground Feeds (8)</span>
+      </div>
+      <div class="job-runner">src/underground.js &middot; pollUndergroundFeeds() &middot; Early-warning intelligence</div>
+      <div class="job-body">
+        <div class="job-section-title">Mailing Lists (2)</div>
+        <div class="job-item"><b>Full Disclosure</b> &mdash; raw vulnerability disclosures (RSS)</div>
+        <div class="job-item"><b>oss-security</b> &mdash; open source security discussions (RSS)</div>
+        <div class="job-section-title">Exploit Intelligence (3)</div>
+        <div class="job-item"><b>Vulners.com</b> &mdash; aggregates 200+ sources (free tier API)</div>
+        <div class="job-item"><b>PoC-in-GitHub</b> &mdash; proof-of-concept repos (GitHub search)</div>
+        <div class="job-item"><b>InTheWild.io</b> &mdash; CVEs exploited in the wild</div>
+        <div class="job-section-title">Detection & Tactics (3)</div>
+        <div class="job-item"><b>Nuclei Templates</b> &mdash; new detection templates (GitHub API)</div>
+        <div class="job-item"><b>AttackerKB</b> &mdash; community-rated exploit assessments (Rapid7)</div>
+        <div class="job-item"><b>MITRE ATT&CK</b> &mdash; new attack techniques (weekly poll)</div>
+        <div class="badges">
+          <span class="badge purple">All Legal &middot; Public</span>
+          <span class="badge orange">Pre-NVD Signal</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="arrow-merge">
+    <div class="legs">
+      <div class="leg"><div class="line"></div></div>
+      <div class="leg"><div class="line"></div></div>
+    </div>
+    <div class="bar"></div>
+    <div class="stem"></div>
+    <div class="triangle"></div>
+  </div>
+
+  <!-- Step 3: CVE Store -->
+  <div class="step-label">Step 3 &mdash; In-Memory CVE Store + Bounty Scoring</div>
+  <div class="centered-box" style="max-width: 720px;">
+    <div class="job-box teal">
+      <div class="job-header">
+        <span class="job-icon">&#x1F4CA;</span>
+        <span class="job-title">CVE Store + Bounty Relevance Scoring</span>
+      </div>
+      <div class="job-runner">intel.js &middot; Deduplicated by CVE ID &middot; Enriched with KEV + exploit flags</div>
+      <div class="job-body">
+        <div class="job-section-title">Stored Per CVE</div>
+        <div class="job-item">ID, CVSS, severity, description, source, published date</div>
+        <div class="job-item">Attack vector, weaknesses (CWE), affected products (CPE)</div>
+        <div class="job-item">Flags: <code>cisaKEV</code>, <code>exploitAvailable</code>, <code>bountyRelevant</code></div>
+        <div class="job-section-title">Bounty Relevance Scoring</div>
+        <div class="job-item">CWE type (XSS, SQLi, SSRF, auth bypass, RCE = high value)</div>
+        <div class="job-item">Web-facing keywords (API, REST, GraphQL, plugin, portal, admin)</div>
+        <div class="job-item">Attack vector (NETWORK = remotely exploitable = bounty target)</div>
+        <div class="job-item">Exploit availability (exploit exists = confirmed vulnerable)</div>
+        <div class="badges">
+          <span class="badge teal">In-Memory</span>
+          <span class="badge gold">Auto-Scored</span>
+          <span class="badge red">Alert on Critical</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><div class="triangle"></div></div>
+
+  <!-- Step 4: Alerts -->
+  <div class="step-label">Step 4 &mdash; Real-Time Telegram Alerts</div>
+  <div class="jobs-3col">
+    <div class="job-box orange">
+      <div class="job-header">
+        <span class="job-icon">&#x1F534;</span>
+        <span class="job-title">Critical CVE Alert</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">CVSS &ge; 7.0 triggers alert</div>
+        <div class="job-item">Severity, attack vector, weaknesses</div>
+        <div class="job-item">CISA KEV + exploit flags</div>
+        <div class="job-item">Up to 5 alerts per poll cycle</div>
+        <div class="badges"><span class="badge orange">HTML Parse Mode</span></div>
+      </div>
+    </div>
+    <div class="job-box red">
+      <div class="job-header">
+        <span class="job-icon">&#x1F525;</span>
+        <span class="job-title">PoC Exploit Alert</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">New proof-of-concept on GitHub</div>
+        <div class="job-item">CVE ID, source URL, description</div>
+        <div class="job-item">Action: verify + check bounty scope</div>
+        <div class="job-item">Up to 5 PoC alerts per cycle</div>
+        <div class="badges"><span class="badge red">Urgent &middot; Actionable</span></div>
+      </div>
+    </div>
+    <div class="job-box gold">
+      <div class="job-header">
+        <span class="job-icon">&#x1F4B0;</span>
+        <span class="job-title">Bounty Match Alert</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">CVE matched to bounty program</div>
+        <div class="job-item">Score, program name, est. payout</div>
+        <div class="job-item">Score &ge; 70 triggers full pipeline</div>
+        <div class="job-item">Up to 3 match alerts per cycle</div>
+        <div class="badges"><span class="badge gold">Revenue Driver</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PART 2 — OPUS 4.6 ANALYSIS ENGINES
+     ════════════════════════════════════════════════════════ -->
+<hr class="divider-thick">
+<div class="section">
+  <div class="section-header">PART 2 &mdash; OPUS 4.6 ANALYSIS ENGINES</div>
+  <div class="section-sub">3 AI Engines &middot; Threat Landscape &middot; Deep Exploit Analysis &middot; Bounty Report Drafting</div>
+
+  <div class="jobs-3col">
+
+    <div class="job-box blue">
+      <div class="job-header">
+        <span class="job-icon">&#x1F9E0;</span>
+        <span class="job-title">Threat Landscape Analysis</span>
+      </div>
+      <div class="job-runner">src/analysis.js &middot; claude-opus-4-6 &middot; max_tokens: 2048</div>
+      <div class="job-body">
+        <div class="job-section-title">Inputs</div>
+        <div class="job-item">Top 20 critical CVEs with full context</div>
+        <div class="job-item">Bounty-relevant CVEs with CWE data</div>
+        <div class="job-item">Recent exploits + security news</div>
+        <div class="job-section-title">Outputs (JSON)</div>
+        <div class="job-item"><code>alertLevel</code> &mdash; CRITICAL / HIGH / ELEVATED / NORMAL</div>
+        <div class="job-item"><code>bountyOpportunities</code> &mdash; CVE, target, est. bounty, strategy</div>
+        <div class="job-item"><code>nucleiTemplatePriority</code> &mdash; which CVEs to template first</div>
+        <div class="job-item"><code>smbAlerts</code> &mdash; what SMBs need to patch NOW</div>
+        <div class="job-item"><code>exploitWatch</code> &mdash; newly weaponized vulns</div>
+        <div class="job-item"><code>attackTrends</code> &mdash; trending attack vectors</div>
+        <div class="job-item"><code>marketIntel</code> &mdash; cybersecurity market impact</div>
+        <div class="badges">
+          <span class="badge blue">Every 15 Min</span>
+          <span class="badge gold">Revenue Intel</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="job-box orange">
+      <div class="job-header">
+        <span class="job-icon">&#x1F50D;</span>
+        <span class="job-title">Deep Exploit Analysis</span>
+      </div>
+      <div class="job-runner">src/exploit-analysis.js &middot; claude-opus-4-6 &middot; Security researcher persona</div>
+      <div class="job-body">
+        <div class="job-section-title">Capabilities</div>
+        <div class="job-item">Exploitability assessment (prerequisites, skill level)</div>
+        <div class="job-item">Impact analysis (worst case, lateral movement)</div>
+        <div class="job-item">Fix/patch analysis (remediation, workarounds)</div>
+        <div class="job-item">Bounty strategy (programs, est. payout, report tips)</div>
+        <div class="job-item">Nuclei template generation (matchers, extractors)</div>
+        <div class="job-section-title">Trigger</div>
+        <div class="job-item">Top 3 critical CVEs analyzed every 15 min</div>
+        <div class="job-item">On-demand via <code>/analyze</code> + <code>/template</code> commands</div>
+        <div class="badges">
+          <span class="badge orange">Defensive Only</span>
+          <span class="badge red">No Exploit Code</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="job-box gold">
+      <div class="job-header">
+        <span class="job-icon">&#x1F4DD;</span>
+        <span class="job-title">Bounty Report Drafting</span>
+      </div>
+      <div class="job-runner">src/bounty-pipeline.js &middot; claude-opus-4-6 &middot; Submission-ready output</div>
+      <div class="job-body">
+        <div class="job-section-title">Pipeline (Score &ge; 70)</div>
+        <div class="job-item">1. Fetch NVD disclosure details</div>
+        <div class="job-item">2. Search for PoCs (Sploitus + GitHub)</div>
+        <div class="job-item">3. Run passive recon on target program</div>
+        <div class="job-item">4. Assess exploitability from all data</div>
+        <div class="job-item">5. Draft submission-ready bounty report</div>
+        <div class="job-section-title">Delivery</div>
+        <div class="job-item">Research package + report to Telegram</div>
+        <div class="job-item">Pushed to Brain for review/edit/approve</div>
+        <div class="badges">
+          <span class="badge gold">Passive Recon Only</span>
+          <span class="badge green">Brain Review</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PART 3 — BOUNTY PROGRAM MANAGER
+     ════════════════════════════════════════════════════════ -->
+<hr class="divider-thick">
+<div class="section">
+  <div class="section-header">PART 3 &mdash; BOUNTY PROGRAM MANAGER</div>
+  <div class="section-sub">15 Programs &middot; 3 Tiers &middot; CVE-to-Program Matching &middot; Submission Tracking &middot; Payout Analytics</div>
+
+  <div class="agent-panel">
+    <div class="agent-panel-header gold-grad">
+      <span class="icon">&#x1F4B0;</span>
+      <h3 class="gold">BOUNTY OPERATIONS ENGINE</h3>
+      <span class="sub">src/bounty-manager.js &middot; In-memory store &middot; Auto-matching on every feed poll</span>
+    </div>
+    <div class="agent-panel-body">
+
+      <!-- Left: Program Registry -->
+      <div class="agent-col">
+        <div class="agent-col-title">Program Registry (15)</div>
+
+        <div class="task-group-title">Tier 1 &mdash; Highest ROI (5)</div>
+        <div class="task-item">
+          <span class="task-num">01</span>
+          <span class="task-name">Google VRP</span>
+          <span class="task-detail">&mdash; up to $150K</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">02</span>
+          <span class="task-name">Microsoft MSRC</span>
+          <span class="task-detail">&mdash; up to $250K</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">03</span>
+          <span class="task-name">Immunefi</span>
+          <span class="task-detail">&mdash; Web3/DeFi</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">04</span>
+          <span class="task-name">HackerOne</span>
+          <span class="task-detail">&mdash; Platform aggregator</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">05</span>
+          <span class="task-name">Bugcrowd</span>
+          <span class="task-detail">&mdash; Platform aggregator</span>
+        </div>
+
+        <div class="task-group-title">Tier 2 &mdash; High Value (5)</div>
+        <div class="task-item">
+          <span class="task-num">06</span>
+          <span class="task-name">Apple</span>
+          <span class="task-detail">&mdash; up to $200K</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">07</span>
+          <span class="task-name">Alibaba</span>
+          <span class="task-detail">&mdash; ASRC</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">08</span>
+          <span class="task-name">Veeam</span>
+          <span class="task-detail">&mdash; Enterprise backup</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">09</span>
+          <span class="task-name">Fortinet</span>
+          <span class="task-detail">&mdash; Security appliances</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">10</span>
+          <span class="task-name">Cisco</span>
+          <span class="task-detail">&mdash; Network infrastructure</span>
+        </div>
+
+        <div class="task-group-title">Tier 3 &mdash; Volume (5)</div>
+        <div class="task-item">
+          <span class="task-num">11</span>
+          <span class="task-name">GitLab</span>
+          <span class="task-detail">&mdash; via HackerOne</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">12</span>
+          <span class="task-name">Shopify</span>
+          <span class="task-detail">&mdash; via HackerOne</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">13</span>
+          <span class="task-name">WordPress</span>
+          <span class="task-detail">&mdash; via HackerOne</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">14</span>
+          <span class="task-name">Docker</span>
+          <span class="task-detail">&mdash; Container security</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num">15</span>
+          <span class="task-name">Redis</span>
+          <span class="task-detail">&mdash; via HackerOne</span>
+        </div>
+      </div>
+
+      <!-- Center: Matching Engine -->
+      <div class="agent-col">
+        <div class="agent-col-title">CVE-to-Program Matching</div>
+
+        <div class="agent-card">
+          <h4>matchCVEsToPrograms()</h4>
+          <p>Runs after every feed poll. Scores each CVE against every active program's tech stack, CWE list, and scope. One CVE can match multiple programs &mdash; that's a feature (multiple payouts).</p>
+          <div class="badges">
+            <span class="badge gold">Auto-run</span>
+            <span class="badge teal">Multi-match</span>
+          </div>
+        </div>
+
+        <div class="agent-card">
+          <h4>Scoring Factors</h4>
+          <p>Tech stack keyword overlap. High-value CWE match (XSS, SQLi, SSRF, RCE, auth bypass). CVSS severity weighting. Exploit availability bonus. CISA KEV flag bonus. Attack vector (NETWORK preferred).</p>
+          <div class="badges">
+            <span class="badge orange">0-100 Score</span>
+          </div>
+        </div>
+
+        <div class="agent-card">
+          <h4>analyzeMatch() &mdash; Opus 4.6</h4>
+          <p>High-scoring matches (&ge;70) get deep AI analysis: exploitation strategy, estimated payout, difficulty assessment, and recommended approach. Triggers the full bounty pipeline.</p>
+          <div class="badges">
+            <span class="badge blue">AI-Powered</span>
+            <span class="badge red">Score &ge; 70</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Tracking -->
+      <div class="agent-col">
+        <div class="agent-col-title">Submission Tracking</div>
+
+        <div class="agent-card">
+          <h4>Submission Lifecycle</h4>
+          <p>draft &rarr; submitted &rarr; triaged &rarr; accepted/rejected &rarr; paid. Each submission tracks CVE ID, program, platform, dates, and payout amount.</p>
+          <div class="badges">
+            <span class="badge green">Full Lifecycle</span>
+          </div>
+        </div>
+
+        <div class="agent-card">
+          <h4>Payout Analytics</h4>
+          <p>Total earned, submissions by status, average payout, top-paying programs. Accessible via <code>/payouts</code> command and API.</p>
+          <div class="badges">
+            <span class="badge gold">Revenue Tracking</span>
+          </div>
+        </div>
+
+        <div class="agent-card">
+          <h4>Brain Integration</h4>
+          <p>Research packages + draft reports pushed to Brain via POST /bounty/reports. Brain provides review/edit/approve workflow before submission.</p>
+          <div class="badges">
+            <span class="badge blue">Human-in-Loop</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PART 4 — DOMAIN SECURITY SCANNER
+     ════════════════════════════════════════════════════════ -->
+<hr class="divider-thick">
+<div class="section">
+  <div class="section-header">PART 4 &mdash; DOMAIN SECURITY SCANNER</div>
+  <div class="section-sub">5 Parallel Checks &middot; Scoring System &middot; Letter Grade &middot; On-Demand via <code>/scan</code></div>
+
+  <div class="jobs-4col" style="grid-template-columns: repeat(5, 1fr);">
+
+    <div class="job-box teal">
+      <div class="job-header">
+        <span class="job-icon">&#x1F512;</span>
+        <span class="job-title">SSL/TLS</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">Certificate validity</div>
+        <div class="job-item">Expiration check</div>
+        <div class="job-item">Protocol version</div>
+        <div class="badges"><span class="badge teal">HTTPS</span></div>
+      </div>
+    </div>
+
+    <div class="job-box blue">
+      <div class="job-header">
+        <span class="job-icon">&#x1F6E1;&#xFE0F;</span>
+        <span class="job-title">Security Headers</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">8 headers analyzed</div>
+        <div class="job-item">CSP, HSTS, X-Frame</div>
+        <div class="job-item">Detailed findings</div>
+        <div class="badges"><span class="badge blue">8 Headers</span></div>
+      </div>
+    </div>
+
+    <div class="job-box green">
+      <div class="job-header">
+        <span class="job-icon">&#x1F4BB;</span>
+        <span class="job-title">Tech Detection</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">Server identification</div>
+        <div class="job-item">Framework detection</div>
+        <div class="job-item">Common paths probe</div>
+        <div class="badges"><span class="badge green">Fingerprint</span></div>
+      </div>
+    </div>
+
+    <div class="job-box purple">
+      <div class="job-header">
+        <span class="job-icon">&#x1F310;</span>
+        <span class="job-title">DNS Analysis</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">A, AAAA, MX, TXT, NS, CAA</div>
+        <div class="job-item">Email security (SPF, DMARC)</div>
+        <div class="job-item">DNS config audit</div>
+        <div class="badges"><span class="badge purple">6 Record Types</span></div>
+      </div>
+    </div>
+
+    <div class="job-box red">
+      <div class="job-header">
+        <span class="job-icon">&#x26A0;&#xFE0F;</span>
+        <span class="job-title">Exposure Check</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">14 sensitive paths</div>
+        <div class="job-item">.env, .git, wp-admin</div>
+        <div class="job-item">Admin panel probing</div>
+        <div class="badges"><span class="badge red">14 Paths</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="arrow-down"><div class="line"></div><div class="triangle"></div></div>
+
+  <div class="centered-box">
+    <div class="job-box green">
+      <div class="job-header">
+        <span class="job-icon">&#x2705;</span>
+        <span class="job-title">Score: 0-100 &middot; Letter Grade (A+ to F)</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">Categorized findings by severity (critical, high, medium, info)</div>
+        <div class="job-item">Results delivered to Telegram with full breakdown</div>
+        <div class="job-item">All checks run in parallel with 8s timeout &middot; Graceful failure handling</div>
+        <div class="badges">
+          <span class="badge green">Promise.allSettled</span>
+          <span class="badge gray">src/scanner.js</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PART 5 — TELEGRAM BOT
+     ════════════════════════════════════════════════════════ -->
+<hr class="divider-thick">
+<div class="section">
+  <div class="section-header">PART 5 &mdash; TELEGRAM BOT INTERFACE</div>
+  <div class="section-sub">23 Commands &middot; HTML Parse Mode &middot; Real-Time Alerts &middot; @UberSecurityBot</div>
+
+  <div class="agent-panel">
+    <div class="agent-panel-header green-grad">
+      <span class="icon">&#x1F4F1;</span>
+      <h3 class="green">TELEGRAM COMMAND CENTER</h3>
+      <span class="sub">src/telegram.js &middot; Webhook at POST /webhook &middot; HTML parse mode &middot; 4096 char limit</span>
+    </div>
+    <div class="agent-panel-body">
+
+      <div class="agent-col">
+        <div class="agent-col-title">Intelligence Commands</div>
+
+        <div class="task-group-title">Core (8)</div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--green)">/start</span>
+          <span class="task-detail">&mdash; Welcome + capabilities</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--green)">/status</span>
+          <span class="task-detail">&mdash; Agent status, feeds, uptime</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--green)">/stats</span>
+          <span class="task-detail">&mdash; 24h CVE statistics + bounty metrics</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--green)">/critical</span>
+          <span class="task-detail">&mdash; Recent critical/high CVEs</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--green)">/cve</span>
+          <span class="task-detail">&mdash; Detailed CVE lookup (local + NVD)</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--green)">/exploits</span>
+          <span class="task-detail">&mdash; Recent public exploits</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--green)">/news</span>
+          <span class="task-detail">&mdash; Security news headlines</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--green)">/feeds</span>
+          <span class="task-detail">&mdash; Feed health dashboard</span>
+        </div>
+      </div>
+
+      <div class="agent-col">
+        <div class="agent-col-title">Advanced Commands</div>
+
+        <div class="task-group-title">Underground (3)</div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--purple)">/underground</span>
+          <span class="task-detail">&mdash; Underground intel summary</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--purple)">/pocs</span>
+          <span class="task-detail">&mdash; New PoC exploit repos</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--purple)">/wild</span>
+          <span class="task-detail">&mdash; CVEs exploited in the wild</span>
+        </div>
+
+        <div class="task-group-title">AI Analysis (2)</div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">/threats</span>
+          <span class="task-detail">&mdash; Opus 4.6 threat landscape</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">/analyze</span>
+          <span class="task-detail">&mdash; Deep exploit analysis on CVE</span>
+        </div>
+
+        <div class="task-group-title">Scanning (2)</div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--orange)">/scan</span>
+          <span class="task-detail">&mdash; Domain security scan (5 checks)</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--orange)">/template</span>
+          <span class="task-detail">&mdash; Generate Nuclei template for CVE</span>
+        </div>
+      </div>
+
+      <div class="agent-col">
+        <div class="agent-col-title">Bounty Commands</div>
+
+        <div class="task-group-title">Bounty Operations (6)</div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--gold)">/bounty</span>
+          <span class="task-detail">&mdash; Bounty opportunities overview</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--gold)">/programs</span>
+          <span class="task-detail">&mdash; List bounty programs</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--gold)">/matches</span>
+          <span class="task-detail">&mdash; CVE-to-program matches</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--gold)">/submit</span>
+          <span class="task-detail">&mdash; Track bounty submission</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--gold)">/payouts</span>
+          <span class="task-detail">&mdash; Payout analytics</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--gold)">/pipeline</span>
+          <span class="task-detail">&mdash; Run bounty pipeline on match</span>
+        </div>
+
+        <div class="task-group-title">Utility (2)</div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--text-dim)">/chatid</span>
+          <span class="task-detail">&mdash; Show chat ID</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--text-dim)">/help</span>
+          <span class="task-detail">&mdash; All commands</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PART 6 — AUTOMATED BACKGROUND JOBS
+     ════════════════════════════════════════════════════════ -->
+<hr class="divider-thick">
+<div class="section">
+  <div class="section-header">PART 6 &mdash; AUTOMATED BACKGROUND JOBS</div>
+  <div class="section-sub">node-cron &middot; 3 Scheduled Jobs &middot; Feed Polling + Analysis + Daily Briefing</div>
+
+  <div class="monitor-grid">
+    <div class="monitor-card">
+      <div class="icon">&#x1F6E1;&#xFE0F;</div>
+      <div class="name">Feed Polling</div>
+      <div class="schedule">*/5 * * * *</div>
+      <div class="desc">Every 5 minutes. Polls all 15 feeds in parallel. Alerts on critical CVEs, new exploits, new PoCs. Runs bounty matching after. Triggers full pipeline on high-scoring matches.</div>
+    </div>
+    <div class="monitor-card">
+      <div class="icon">&#x1F9E0;</div>
+      <div class="name">Opus 4.6 Analysis</div>
+      <div class="schedule">*/15 * * * *</div>
+      <div class="desc">Every 15 minutes. Full threat landscape analysis. Deep exploit analysis on top 3 critical CVEs. Bounty opportunities + Nuclei template priority. Attack trends + market intel.</div>
+    </div>
+    <div class="monitor-card">
+      <div class="icon">&#x1F4CB;</div>
+      <div class="name">Daily Briefing</div>
+      <div class="schedule">0 13 * * *</div>
+      <div class="desc">8:00 AM ET daily. Comprehensive security briefing: feed health, 24h stats, critical CVEs, bounty opportunities, threat analysis, attack trends, recommendations, market intel.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PART 7 — API ROUTE MAP
+     ════════════════════════════════════════════════════════ -->
+<hr class="divider-thick">
+<div class="section">
+  <div class="section-header">PART 7 &mdash; API ROUTE MAP</div>
+  <div class="section-sub">Express REST API &middot; x-api-key Auth &middot; Brain Integration &middot; 10 Endpoints</div>
+
+  <div class="agent-panel">
+    <div class="agent-panel-header purple-grad">
+      <span class="icon">&#x1F4E1;</span>
+      <h3 class="purple">API ROUTES</h3>
+      <span class="sub">src/index.js &middot; Express ESM &middot; port 3006 (local) / PORT (Railway)</span>
+    </div>
+    <div class="agent-panel-body two-col">
+
+      <div class="agent-col">
+        <div class="agent-col-title">System & Intelligence</div>
+
+        <div class="task-group-title">System (2)</div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">GET</span>
+          <span class="task-name">/</span>
+          <span class="task-detail">&mdash; Agent info (status, version, feeds)</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">GET</span>
+          <span class="task-name">/health</span>
+          <span class="task-detail">&mdash; Health check (uptime, CVE count, feeds)</span>
+        </div>
+
+        <div class="task-group-title">Telegram</div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--green)">POST</span>
+          <span class="task-name">/webhook</span>
+          <span class="task-detail">&mdash; Telegram webhook handler</span>
+        </div>
+
+        <div class="task-group-title">Intel (API Key Required)</div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">GET</span>
+          <span class="task-name">/intel/security</span>
+          <span class="task-detail">&mdash; Full intel package for Brain</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">GET</span>
+          <span class="task-name">/intel/cve</span>
+          <span class="task-detail">&mdash; CVE search (local + NVD fallback)</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">GET</span>
+          <span class="task-name">/intel/analysis</span>
+          <span class="task-detail">&mdash; Latest analysis + history</span>
+        </div>
+      </div>
+
+      <div class="agent-col">
+        <div class="agent-col-title">Bounty Operations</div>
+
+        <div class="task-group-title">Bounty API (API Key Required)</div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">GET</span>
+          <span class="task-name">/bounty/programs</span>
+          <span class="task-detail">&mdash; List programs (active filter)</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--green)">POST</span>
+          <span class="task-name">/bounty/programs</span>
+          <span class="task-detail">&mdash; Add new program</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">GET</span>
+          <span class="task-name">/bounty/matches</span>
+          <span class="task-detail">&mdash; Top CVE-program matches</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">GET</span>
+          <span class="task-name">/bounty/matches/:programId</span>
+          <span class="task-detail">&mdash; Matches for specific program</span>
+        </div>
+        <div class="task-item">
+          <span class="task-num" style="color:var(--blue)">GET</span>
+          <span class="task-name">/bounty/submissions</span>
+          <span class="task-detail">&mdash; Submissions + payout stats</span>
+        </div>
+
+        <div class="task-group-title">Authentication</div>
+        <div class="agent-card">
+          <p>All <code>/intel/*</code> and <code>/bounty/*</code> endpoints require <code>x-api-key</code> header matching <code>BRAIN_API_KEY</code>. System endpoints (<code>/</code>, <code>/health</code>, <code>/webhook</code>) are public.</p>
+          <div class="badges">
+            <span class="badge red">API Key Guard</span>
+            <span class="badge blue">Brain Access</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PART 8 — BRAIN INTEGRATION
+     ════════════════════════════════════════════════════════ -->
+<hr class="divider-thick">
+<div class="section">
+  <div class="section-header">PART 8 &mdash; BRAIN INTEGRATION & AGENT NETWORK</div>
+  <div class="section-sub">Agent-to-Agent Communication &middot; security_intel Tool &middot; Bounty Report Review Workflow</div>
+
+  <div class="jobs-3col">
+
+    <div class="job-box blue">
+      <div class="job-header">
+        <span class="job-icon">&#x1F9E0;</span>
+        <span class="job-title">Brain &rarr; Security Agent</span>
+      </div>
+      <div class="job-runner">Brain's security_intel tool &middot; GET /intel/security</div>
+      <div class="job-body">
+        <div class="job-section-title">Data Provided to Brain</div>
+        <div class="job-item">CVE stats (24h counts, totals)</div>
+        <div class="job-item">Critical CVEs (top 15 with full context)</div>
+        <div class="job-item">Opus 4.6 threat analysis (latest)</div>
+        <div class="job-item">Bounty opportunities (top 10)</div>
+        <div class="job-item">Recent exploits + PoCs (top 10 each)</div>
+        <div class="job-item">Security news headlines (top 10)</div>
+        <div class="job-item">Underground intel + feed status</div>
+        <div class="job-item">Bounty programs, matches, submissions</div>
+        <div class="badges">
+          <span class="badge blue">Full Intel Package</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="job-box gold">
+      <div class="job-header">
+        <span class="job-icon">&#x1F4DD;</span>
+        <span class="job-title">Security Agent &rarr; Brain</span>
+      </div>
+      <div class="job-runner">bounty-pipeline.js &middot; pushReportToBrain()</div>
+      <div class="job-body">
+        <div class="job-section-title">Bounty Report Workflow</div>
+        <div class="job-item">1. High-scoring match triggers pipeline</div>
+        <div class="job-item">2. Research package built (passive recon)</div>
+        <div class="job-item">3. Opus 4.6 drafts submission report</div>
+        <div class="job-item">4. Report pushed to Brain for review</div>
+        <div class="job-item">5. Human reviews/edits/approves in Brain</div>
+        <div class="job-item">6. Approved report submitted to program</div>
+        <div class="badges">
+          <span class="badge gold">Human-in-Loop</span>
+          <span class="badge green">Review Required</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="job-box red">
+      <div class="job-header">
+        <span class="job-icon">&#x1F50C;</span>
+        <span class="job-title">Agent Network Position</span>
+      </div>
+      <div class="job-body">
+        <div class="job-section-title">Peer Agents</div>
+        <div class="job-item"><b>AI Brain</b> &mdash; Intelligence hub, queries Security Agent</div>
+        <div class="job-item"><b>Trader Agent</b> &mdash; Market intelligence, cybersecurity stocks</div>
+        <div class="job-item"><b>Travel Agent</b> &mdash; Independent (no security data flow)</div>
+        <div class="job-section-title">Cross-Agent Intel</div>
+        <div class="job-item">Security &rarr; Trader: cybersecurity market impact</div>
+        <div class="job-item">Security &rarr; Brain: CVE + exploit + bounty data</div>
+        <div class="job-item">Brain &rarr; Security: queries via security_intel tool</div>
+        <div class="badges">
+          <span class="badge red">x-api-key Auth</span>
+          <span class="badge purple">Bi-directional</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PART 9 — FILE STRUCTURE & INFRASTRUCTURE
+     ════════════════════════════════════════════════════════ -->
+<hr class="divider-thick">
+<div class="section">
+  <div class="section-header">PART 9 &mdash; FILE STRUCTURE & INFRASTRUCTURE</div>
+  <div class="section-sub">10 Source Files &middot; Railway Hosting &middot; Dockerfile &middot; Minimal Dependencies</div>
+
+  <div class="jobs-2col">
+
+    <div class="job-box teal">
+      <div class="job-header">
+        <span class="job-icon">&#x1F4C1;</span>
+        <span class="job-title">Project Structure</span>
+      </div>
+      <div class="job-body">
+        <div class="file-tree"><span class="dir">security-agent/</span>
+<span class="file">  package.json</span>          <span class="comment"># express + node-cron (2 deps)</span>
+<span class="file">  Dockerfile</span>             <span class="comment"># Railway container build</span>
+<span class="file">  CLAUDE.md</span>              <span class="comment"># Agent documentation</span>
+<span class="file">  .env.example</span>           <span class="comment"># Required environment variables</span>
+<span class="file">  .gitignore</span>
+<span class="dir">  src/</span>
+<span class="file">    index.js</span>             <span class="comment"># Express + 3 crons + alert formatters</span>
+<span class="file">    intel.js</span>             <span class="comment"># 7-feed polling + CVE store + scoring</span>
+<span class="file">    underground.js</span>       <span class="comment"># 8 underground feeds + PoC tracking</span>
+<span class="file">    analysis.js</span>          <span class="comment"># Opus 4.6 threat analysis engine</span>
+<span class="file">    exploit-analysis.js</span>  <span class="comment"># Deep CVE analysis + Nuclei templates</span>
+<span class="file">    bounty-manager.js</span>    <span class="comment"># 15 programs + matching + submissions</span>
+<span class="file">    bounty-pipeline.js</span>   <span class="comment"># Research + report drafting pipeline</span>
+<span class="file">    scanner.js</span>           <span class="comment"># Domain security scanner (5 checks)</span>
+<span class="file">    telegram.js</span>          <span class="comment"># 23 commands + webhook handler</span>
+<span class="file">    findings.js</span>          <span class="comment"># Finding store (in-memory)</span></div>
+      </div>
+    </div>
+
+    <div class="job-box blue">
+      <div class="job-header">
+        <span class="job-icon">&#x1F6A2;</span>
+        <span class="job-title">Infrastructure</span>
+      </div>
+      <div class="job-body">
+        <div class="job-section-title">Railway Platform</div>
+        <div class="job-item">Hobby plan (~$5/month)</div>
+        <div class="job-item">Auto-deploy from <code>main</code> branch</div>
+        <div class="job-item">Health check: <code>GET /health</code></div>
+        <div class="job-item">Port assigned by Railway</div>
+        <div class="job-section-title">Runtime</div>
+        <div class="job-item">Node.js 20+ &middot; ESM modules</div>
+        <div class="job-item">2 dependencies: express + node-cron</div>
+        <div class="job-item">All other APIs via native fetch()</div>
+        <div class="job-section-title">Storage</div>
+        <div class="job-item">In-memory (CVE store, matches, findings)</div>
+        <div class="job-item">No database &mdash; repopulates on restart</div>
+        <div class="job-item">24h NVD seed on startup for immediate data</div>
+        <div class="badges">
+          <span class="badge blue">Auto-Deploy</span>
+          <span class="badge green">2 Dependencies</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     PART 10 — REVENUE MODEL
+     ════════════════════════════════════════════════════════ -->
+<hr class="divider-thick">
+<div class="section">
+  <div class="section-header">PART 10 &mdash; REVENUE MODEL</div>
+  <div class="section-sub">3 Revenue Streams &middot; Bug Bounties &middot; SMB Monitoring &middot; Intelligence Feeds</div>
+
+  <div class="jobs-3col">
+
+    <div class="job-box gold">
+      <div class="job-header">
+        <span class="job-icon">&#x1F3AF;</span>
+        <span class="job-title">Bug Bounties</span>
+      </div>
+      <div class="job-body">
+        <div class="job-section-title">Competitive Advantage</div>
+        <div class="job-item">First-to-find via fast CVE &rarr; exploit correlation</div>
+        <div class="job-item">15 feeds polled every 5 minutes</div>
+        <div class="job-item">Automated CVE-to-program matching</div>
+        <div class="job-item">Opus 4.6 research + report drafting</div>
+        <div class="job-item">Nuclei template generation for scanning</div>
+        <div class="job-section-title">Target Programs</div>
+        <div class="job-item">Google ($150K), Microsoft ($250K), Apple ($200K)</div>
+        <div class="job-item">GitLab, Shopify, Docker, Redis via HackerOne</div>
+        <div class="job-item">Web3/DeFi via Immunefi</div>
+        <div class="badges"><span class="badge gold">Primary Revenue</span></div>
+      </div>
+    </div>
+
+    <div class="job-box green">
+      <div class="job-header">
+        <span class="job-icon">&#x1F3E2;</span>
+        <span class="job-title">SMB Monitoring</span>
+      </div>
+      <div class="job-body">
+        <div class="job-section-title">Service</div>
+        <div class="job-item">Curated vulnerability alerts for businesses</div>
+        <div class="job-item">Tech stack-specific CVE monitoring</div>
+        <div class="job-item">Patch priority recommendations</div>
+        <div class="job-item">Weekly/daily threat briefings</div>
+        <div class="job-section-title">Pricing</div>
+        <div class="job-item">Basic: $49/mo (weekly alerts)</div>
+        <div class="job-item">Pro: $149/mo (daily + analysis)</div>
+        <div class="job-item">Enterprise: $349/mo (real-time + scanning)</div>
+        <div class="badges"><span class="badge green">Recurring Revenue</span></div>
+      </div>
+    </div>
+
+    <div class="job-box purple">
+      <div class="job-header">
+        <span class="job-icon">&#x1F4E1;</span>
+        <span class="job-title">Intelligence Feeds</span>
+      </div>
+      <div class="job-body">
+        <div class="job-section-title">Product</div>
+        <div class="job-item">Premium threat intelligence delivery</div>
+        <div class="job-item">15-source aggregated feed</div>
+        <div class="job-item">Opus 4.6 analysis overlay</div>
+        <div class="job-item">API access for integration</div>
+        <div class="job-section-title">Pricing</div>
+        <div class="job-item">Starter: $29/mo (curated alerts)</div>
+        <div class="job-item">Pro: $99/mo (full feed + analysis)</div>
+        <div class="job-item">Enterprise: $199/mo (API access + custom)</div>
+        <div class="badges"><span class="badge purple">Scalable</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     ENVIRONMENT VARIABLES
+     ════════════════════════════════════════════════════════ -->
+<div class="env-bar">
+  <h3>Environment Variables (.env &middot; Railway Secrets)</h3>
+  <div class="env-chips">
+    <div class="env-chip"><span class="key">TELEGRAM_BOT_TOKEN</span> <span class="val">= from @BotFather</span></div>
+    <div class="env-chip"><span class="key">TELEGRAM_CHAT_ID</span> <span class="val">= default alert chat</span></div>
+    <div class="env-chip"><span class="key">ANTHROPIC_API_KEY</span> <span class="val">= sk-ant-... (Opus 4.6)</span></div>
+    <div class="env-chip"><span class="key">BRAIN_API_URL</span> <span class="val">= Brain production URL</span></div>
+    <div class="env-chip"><span class="key">BRAIN_API_KEY</span> <span class="val">= shared API key</span></div>
+    <div class="env-chip"><span class="key">NVD_API_KEY</span> <span class="val">= optional (higher rate limits)</span></div>
+    <div class="env-chip"><span class="key">GITHUB_TOKEN</span> <span class="val">= optional (higher API limits)</span></div>
+    <div class="env-chip"><span class="key">PORT</span> <span class="val">= 3006 (local) / auto (Railway)</span></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     FUTURE PHASES
+     ════════════════════════════════════════════════════════ -->
+<hr class="divider-thick">
+<div class="section">
+  <div class="section-header">FUTURE PHASES</div>
+  <div class="section-sub">Planned Expansions &middot; All on Railway</div>
+
+  <div class="jobs-3col">
+
+    <div class="job-box orange">
+      <div class="job-header">
+        <span class="job-icon">&#x1F680;</span>
+        <span class="job-title">Phase 1 &mdash; Scanning</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">Nuclei scanning (Docker-based)</div>
+        <div class="job-item">Custom template generation</div>
+        <div class="job-item">Recon pipeline (subfinder + httpx)</div>
+        <div class="badges"><span class="badge orange">Active Scanning</span></div>
+      </div>
+    </div>
+
+    <div class="job-box teal">
+      <div class="job-header">
+        <span class="job-icon">&#x1F4CB;</span>
+        <span class="job-title">Phase 2 &mdash; Platform Integration</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">HackerOne scope parsing</div>
+        <div class="job-item">Automated report submission via API</div>
+        <div class="job-item">Brain <code>security_scan</code> tool</div>
+        <div class="badges"><span class="badge teal">Automation</span></div>
+      </div>
+    </div>
+
+    <div class="job-box green">
+      <div class="job-header">
+        <span class="job-icon">&#x1F4B5;</span>
+        <span class="job-title">Phase 3 &mdash; SMB SaaS</span>
+      </div>
+      <div class="job-body">
+        <div class="job-item">Customer dashboard</div>
+        <div class="job-item">Stripe billing integration</div>
+        <div class="job-item">Scheduled scans per customer</div>
+        <div class="job-item">Trader Agent cross-intel</div>
+        <div class="badges"><span class="badge green">Revenue SaaS</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     LEGEND
+     ════════════════════════════════════════════════════════ -->
+<div class="legend">
+  <div class="legend-items">
+    <div class="legend-item"><div class="legend-dot red"></div> Core Intelligence</div>
+    <div class="legend-item"><div class="legend-dot purple"></div> Underground Feeds</div>
+    <div class="legend-item"><div class="legend-dot blue"></div> AI Analysis (Opus 4.6)</div>
+    <div class="legend-item"><div class="legend-dot gold"></div> Bounty Operations</div>
+    <div class="legend-item"><div class="legend-dot green"></div> Telegram Interface</div>
+    <div class="legend-item"><div class="legend-dot teal"></div> Scanning & Infra</div>
+    <div class="legend-item"><div class="legend-dot orange"></div> Alerts & Pipeline</div>
+  </div>
+  <div class="legend-right">UBER SECURITY AGENT &middot; v2.1 &middot; 2026</div>
+</div>
+
+</div><!-- /wrapper -->
+</body>
+</html>
