@@ -60,13 +60,28 @@ Autonomous AI security intelligence agent powered by Claude Opus 4.6. Monitors 1
 
 ## Cron Schedule
 
-| Pattern | Frequency | Purpose |
-|---------|-----------|---------|
-| `*/5 * * * *` | Every 5 min | Poll ALL 15 feeds + run bounty matching against 16 programs. Alert on new high-score matches. |
-| `*/15 * * * *` | Every 15 min | Opus 4.6 deep analysis — bounty opportunities, exploit watch, threat trends |
-| `0 13 * * *` | 8:00 AM ET | Full daily security briefing with all metrics |
+**STATUS: PARTIALLY PAUSED (March 19, 2026)** — Opus/Sonnet API calls and Telegram alerts disabled to stop API charges while automation pipeline is incomplete. Feed polling and bounty matching still run (free). To re-enable: search `[PAUSED]` comments in `src/index.js` and uncomment.
 
-### 5-Minute Cron Flow
+| Pattern | Frequency | Purpose | Status |
+|---------|-----------|---------|--------|
+| `*/5 * * * *` | Every 5 min | Poll 15 feeds + bounty matching (free, no API) | **ACTIVE** |
+| `0 * * * *` | Every hour | Opus/Sonnet threat + exploit analysis | **PAUSED** |
+| `0 13 * * *` | 8:00 AM ET | Daily security briefing (Telegram) | **PAUSED** |
+| `0 17 * * *` | 9:00 AM PT | HackerOne program sync (HTTP only) | **ACTIVE** |
+
+### What's paused (to re-enable, search `[PAUSED]` in index.js):
+- Telegram alerts for new critical CVEs and PoC exploits
+- Opus analysis + bounty pipeline auto-trigger on high-score matches (>= 85)
+- Hourly Sonnet threat analysis + Opus exploit deep-dive
+- Daily security briefing Telegram message
+
+### What's still running (zero cost):
+- 15-feed polling every 5 min (data accumulates silently)
+- Bounty matching engine (local scoring, no API)
+- HackerOne sync (HTTP only)
+- All manual Telegram commands (`/test`, `/pipeline`, `/status`, etc.)
+
+### 5-Minute Cron Flow (current — paused items crossed out)
 ```
 Poll CVE feeds (intel.js) ──► 15 feeds, deduplicated
          │
@@ -74,17 +89,13 @@ Poll CVE feeds (intel.js) ──► 15 feeds, deduplicated
 Poll underground feeds (underground.js) ──► InTheWild, VulDB, oss-sec, etc.
          │
          ▼
-Match CVEs to programs (bounty-manager.js)
+Match CVEs to programs (bounty-manager.js) ──► local scoring only
          │
-         ├── For each CVE × each active program:
-         │     Tech stack match (30) + CWE match (20) + CVSS (15)
-         │     + Exploit availability (15) + Freshness (10) + Competition (10)
-         │
-         ├── Score >= 70 → Opus deep analysis + bounty pipeline
-         ├── Top 3 new matches → Telegram alerts
+         ├── ~~Score >= 70 → Telegram alert~~ [PAUSED]
+         ├── ~~Score >= 85 → Opus analysis + bounty pipeline~~ [PAUSED]
          │
          ▼
-Cache results in memory
+Cache results in memory (available via /matches, /stats, /critical)
 ```
 
 ## Intelligence Feeds (15)
