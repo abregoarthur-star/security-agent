@@ -271,71 +271,22 @@ cron.schedule('*/5 * * * *', async () => {
       pollUndergroundFeeds(),
     ]);
 
-    // Alert on new critical CVEs — batch into one message (critical only, not high)
-    const criticals = results.newCritical.filter(c => c.severity === 'CRITICAL' || (c.cvss && c.cvss >= 9.0));
-    if (criticals.length > 0 && CHAT_ID) {
-      const top = criticals.slice(0, 3);
-      let msg = `<b>🔴 ${top.length} New Critical CVE${top.length > 1 ? 's' : ''}</b>\n`;
-      for (const cve of top) {
-        msg += `\n• <b>${esc(cve.id)}</b> (CVSS ${cve.cvss || 'N/A'})\n  ${esc((cve.description || '').slice(0, 120))}`;
-      }
-      await sendMessage(CHAT_ID, msg, { alert: true });
-    }
-
-    // Alert on new PoC exploit repos — only top 1, high-signal only
-    if (ugResults.newPocs?.length > 0 && CHAT_ID) {
-      const msg = formatPoCAlert(ugResults.newPocs[0]);
-      await sendMessage(CHAT_ID, msg, { alert: true });
-    }
-
-    // Skip individual exploit alerts — covered by bounty matching below
+    // [PAUSED] Telegram alerts disabled — re-enable when automation is complete
+    // const criticals = results.newCritical.filter(c => c.severity === 'CRITICAL' || (c.cvss && c.cvss >= 9.0));
+    // if (criticals.length > 0 && CHAT_ID) { ... }
+    // if (ugResults.newPocs?.length > 0 && CHAT_ID) { ... }
 
     console.log(`[CRON] Feed poll complete: ${results.total} CVEs, ${results.newCritical.length} new critical, ${results.newExploits?.length || 0} new exploits, ${ugResults.total} underground items, ${ugResults.newPocs?.length || 0} new PoCs`);
     if (ugResults.errors.length > 0) {
       ugResults.errors.forEach(e => console.log(`  Underground feed error: ${e}`));
     }
 
-    // Run bounty matching after feeds are updated
+    // Run bounty matching after feeds are updated (free — no API calls)
     try {
       const matchResults = matchCVEsToPrograms();
-      if (matchResults.newMatches.length > 0 && CHAT_ID) {
-        // Only alert on high-scoring matches (>= 70), top 1 per cycle
-        const alertMatches = matchResults.newMatches.filter(m => m.score >= 70).slice(0, 1);
-        for (const match of alertMatches) {
-          await sendMessage(CHAT_ID, formatBountyMatch(match), { alert: true });
-
-          // Sonnet analysis + pipeline for high-scoring matches (>= 85)
-          if (match.score >= 85) {
-            try {
-              const analysis = await analyzeMatch(match);
-              if (analysis) {
-                await sendMessage(CHAT_ID, formatMatchAnalysis(match, analysis), { alert: true });
-              }
-            } catch (analysisErr) {
-              console.error(`[BOUNTY] Analysis failed for ${match.cveId}:`, analysisErr.message);
-            }
-
-            // Full bounty pipeline — research package + report draft
-            try {
-              const program = getProgram(match.programId);
-              if (program) {
-                const pipeline = await runBountyPipeline(process.env, match, program);
-                if (pipeline.telegramMessage) {
-                  const messages = Array.isArray(pipeline.telegramMessage)
-                    ? pipeline.telegramMessage
-                    : [pipeline.telegramMessage];
-                  for (const msg of messages) {
-                    await sendMessage(CHAT_ID, msg, { alert: true });
-                  }
-                }
-              }
-            } catch (pipelineErr) {
-              console.error(`[BOUNTY] Pipeline failed for ${match.cveId}:`, pipelineErr.message);
-            }
-          }
-        }
-      }
       console.log(`[CRON] Bounty matching: ${matchResults.newMatches.length} new, ${matchResults.totalMatches} total`);
+      // [PAUSED] Telegram alerts + Opus analysis + bounty pipeline disabled
+      // Re-enable when full automation pipeline is complete
     } catch (matchErr) {
       console.error('[CRON] Bounty matching failed:', matchErr.message);
     }
@@ -347,41 +298,9 @@ cron.schedule('*/5 * * * *', async () => {
   }
 });
 
-// Every 60 minutes: Sonnet threat analysis (was 15min Opus — reduced for cost)
-cron.schedule('0 * * * *', async () => {
-  console.log('[CRON] Running Sonnet threat analysis...');
-  try {
-    const analysis = await runAnalysis();
-
-    if (analysis && CHAT_ID) {
-      // Send analysis digest (combined — no separate bounty alert)
-      const msg = formatAnalysisDigest(analysis);
-      await sendMessage(CHAT_ID, msg, { alert: true });
-    }
-
-    // Deep exploit analysis on top 1 most critical new CVE
-    const critical = getRecentCritical();
-    const top1 = critical.filter(c => c.severity === 'CRITICAL' || (c.cvss && c.cvss >= 9.0)).slice(0, 1);
-    if (top1.length > 0 && CHAT_ID) {
-      console.log(`[CRON] Running exploit analysis on top critical CVE...`);
-      for (const cve of top1) {
-        try {
-          const exploitAnalysis = await analyzeExploit(cve);
-          if (exploitAnalysis && !exploitAnalysis.error) {
-            const msg = formatExploitAnalysisAlert(exploitAnalysis);
-            await sendMessage(CHAT_ID, msg, { alert: true });
-          }
-        } catch (analysisErr) {
-          console.error(`[CRON] Exploit analysis failed for ${cve.id}:`, analysisErr.message);
-        }
-      }
-    }
-
-    console.log('[CRON] Sonnet analysis complete');
-  } catch (err) {
-    console.error('[CRON] Analysis failed:', err.message);
-  }
-});
+// [PAUSED] Hourly Sonnet/Opus analysis — disabled to stop API charges
+// Re-enable when full automation pipeline is complete
+// cron.schedule('0 * * * *', async () => { ... });
 
 // Daily 9am PT (17:00 UTC): Sync HackerOne programs
 cron.schedule('0 17 * * *', async () => {
@@ -395,9 +314,11 @@ cron.schedule('0 17 * * *', async () => {
   }
 });
 
-// Daily 8am ET (13:00 UTC): Full security briefing
+// [PAUSED] Daily briefing — disabled to stop Telegram spam while automation is incomplete
+// Re-enable when full automation pipeline is complete
 cron.schedule('0 13 * * *', async () => {
-  console.log('[CRON] Generating daily security briefing...');
+  console.log('[CRON] Daily briefing PAUSED — skipping');
+  return;
   try {
     const stats = getCVEStats();
     const critical = getRecentCritical();
