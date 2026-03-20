@@ -7,3 +7,7 @@ healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
+
+[[volumes]]
+name = "security-data"
+mountPath = "/data"
