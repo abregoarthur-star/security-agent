@@ -4,7 +4,7 @@
 Autonomous AI security intelligence agent powered by Claude Opus 4.6. Monitors 15 vulnerability databases and exploit feeds, scores CVEs against 16 bug bounty programs, **validates targets with passive testing**, generates evidence-backed bounty reports, and delivers actionable alerts via Telegram.
 
 **Bot:** @UberSecurityBot on Telegram
-**Hosting:** Railway (Hobby plan)
+**Hosting:** Railway (Hobby plan, persistent volume at `/data`)
 **Model:** Claude Opus 4.6 (analysis + report drafting)
 **Feeds:** 15 intelligence sources, all free
 **Programs:** 16 bounty programs (Railway, Google, Microsoft, Apple, Immunefi, etc.)
@@ -318,7 +318,7 @@ The bounty pipeline pushes reports to `POST {BRAIN_API_URL}/bounty/reports` with
 - **6-factor priority scoring** — Not all CVEs are equal. Tech stack match, CWE, CVSS, exploit availability, freshness, and competition level.
 - **One CVE, multiple programs** — A single CVE can match multiple programs. Each match is scored independently.
 - **HTML parse mode** — More reliable than Markdown for Telegram. Use `esc()` helper for all dynamic text.
-- **All in-memory** — Fast, simple, no database. Programs are code-defined, matches and submissions reset on redeploy.
+- **Persistent storage** — Railway volume mounted at `/data` (configured in `railway.toml`). CVE findings, bounty matches, and submissions survive container restarts and redeploys. Store layer in `src/store.js` with debounced write-through to JSON files.
 - **Passive validation** — Bounty pipeline validates targets with read-only HTTP requests + public data (Shodan InternetDB). No payloads, no exploitation. Evidence-backed reports get paid.
 - **Phased testing approach** — Phase 1 (passive) is live. Phase 2 (Nuclei detection) code-ready. Phase 3-4 (sandbox, active) are future.
 - **Same stack as Brain** — Node.js + Express. Easy to maintain, deploy, and integrate.
